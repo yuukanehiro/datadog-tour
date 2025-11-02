@@ -137,6 +137,7 @@ func main() {
 	// Setup handlers
 	healthHandler := handler.NewHealthHandler(logger)
 	userHandler := handler.NewUserHandler(userUseCase, logger)
+	testHandler := handler.NewTestHandler(logger)
 
 	// Setup router with tracing
 	router := gorillatrace.NewRouter(gorillatrace.WithServiceName(os.Getenv("DD_SERVICE")))
@@ -149,6 +150,10 @@ func main() {
 	router.HandleFunc("/api/users", userHandler.CreateUser).Methods("POST")
 	router.HandleFunc("/api/users", userHandler.GetAllUsers).Methods("GET")
 	router.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
+
+	// Test endpoints for Datadog demonstration
+	router.HandleFunc("/api/slow", testHandler.SlowEndpoint).Methods("GET")
+	router.HandleFunc("/api/error", testHandler.ErrorEndpoint).Methods("GET")
 
 	// Setup CORS
 	corsHandler := cors.New(cors.Options{

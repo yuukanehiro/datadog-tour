@@ -3,7 +3,6 @@ package logging
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"runtime"
 
 	"github.com/sirupsen/logrus"
@@ -18,9 +17,15 @@ func LogWithTrace(ctx context.Context, logger *logrus.Logger, layer, message str
 
 	// Get caller information (skip 2 frames to get the actual caller)
 	_, file, line, ok := runtime.Caller(2)
+	var formattedMessage string
 	if ok {
-		fields["file"] = filepath.Base(file)
+		fields["file"] = file
 		fields["line"] = line
+		// Format message with layer, file, line, and message
+		formattedMessage = fmt.Sprintf("[%s] %s:%d | %s", layer, file, line, message)
+	} else {
+		// Fallback if caller info is not available
+		formattedMessage = fmt.Sprintf("[%s] %s", layer, message)
 	}
 
 	// Extract trace information from context
@@ -31,9 +36,6 @@ func LogWithTrace(ctx context.Context, logger *logrus.Logger, layer, message str
 	}
 
 	fields["layer"] = layer
-
-	// Format message with layer prefix
-	formattedMessage := fmt.Sprintf("[%s] %s", layer, message)
 
 	logger.WithFields(fields).Info(formattedMessage)
 }
@@ -46,9 +48,15 @@ func LogErrorWithTrace(ctx context.Context, logger *logrus.Logger, layer, messag
 
 	// Get caller information (skip 2 frames to get the actual caller)
 	_, file, line, ok := runtime.Caller(2)
+	var formattedMessage string
 	if ok {
-		fields["file"] = filepath.Base(file)
+		fields["file"] = file
 		fields["line"] = line
+		// Format message with layer, file, line, and message
+		formattedMessage = fmt.Sprintf("[%s] %s:%d | %s", layer, file, line, message)
+	} else {
+		// Fallback if caller info is not available
+		formattedMessage = fmt.Sprintf("[%s] %s", layer, message)
 	}
 
 	// Extract trace information from context
@@ -59,9 +67,6 @@ func LogErrorWithTrace(ctx context.Context, logger *logrus.Logger, layer, messag
 	}
 
 	fields["layer"] = layer
-
-	// Format message with layer prefix
-	formattedMessage := fmt.Sprintf("[%s] %s", layer, message)
 
 	logger.WithFields(fields).WithError(err).Error(formattedMessage)
 }

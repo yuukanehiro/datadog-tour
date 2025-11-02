@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/domain"
@@ -28,16 +29,22 @@ func NewUserRepository(db *sql.DB, logger *logrus.Logger) *UserRepository {
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	query := "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)"
 
-	r.logWithTrace(ctx, "Executing SQL query", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: name=%s, email=%s, created_at=%v]", query, user.Name, user.Email, user.CreatedAt), logrus.Fields{
 		"query": query,
 		"user.name": user.Name,
 		"user.email": user.Email,
+		"user.created_at": user.CreatedAt,
 	})
 
+	startTime := time.Now()
 	result, err := r.db.ExecContext(ctx, query, user.Name, user.Email, user.CreatedAt)
+	duration := time.Since(startTime)
 	if err != nil {
-		r.logErrorWithTrace(ctx, "Failed to execute SQL query", err, logrus.Fields{
+		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [params: name=%s, email=%s] [duration: %v]", query, user.Name, user.Email, duration), err, logrus.Fields{
 			"query": query,
+			"user.name": user.Name,
+			"user.email": user.Email,
+			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return fmt.Errorf("failed to insert user: %w", err)
 	}
@@ -50,8 +57,9 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 
 	user.ID = int(id)
 
-	r.logWithTrace(ctx, "User created in database", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL result: User created with ID=%d [duration: %v]", user.ID, duration), logrus.Fields{
 		"user.id": user.ID,
+		"sql.duration_ms": duration.Milliseconds(),
 	})
 
 	return nil
@@ -61,37 +69,43 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 func (r *UserRepository) FindByID(ctx context.Context, id int) (*domain.User, error) {
 	query := "SELECT id, name, email, created_at FROM users WHERE id = ?"
 
-	r.logWithTrace(ctx, "Executing SQL query", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: id=%d]", query, id), logrus.Fields{
 		"query": query,
 		"user.id": id,
 	})
 
 	var user domain.User
 
+	startTime := time.Now()
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Name,
 		&user.Email,
 		&user.CreatedAt,
 	)
+	duration := time.Since(startTime)
 
 	if err == sql.ErrNoRows {
-		r.logWithTrace(ctx, "User not found in database", logrus.Fields{
+		r.logWithTrace(ctx, fmt.Sprintf("SQL result: User not found (id=%d) [duration: %v]", id, duration), logrus.Fields{
 			"user.id": id,
+			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("user not found")
 	}
 
 	if err != nil {
-		r.logErrorWithTrace(ctx, "Failed to execute SQL query", err, logrus.Fields{
+		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [params: id=%d] [duration: %v]", query, id, duration), err, logrus.Fields{
 			"query": query,
+			"user.id": id,
+			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 
-	r.logWithTrace(ctx, "User found in database", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL result: Found user ID=%d, name=%s [duration: %v]", user.ID, user.Name, duration), logrus.Fields{
 		"user.id": user.ID,
 		"user.name": user.Name,
+		"sql.duration_ms": duration.Milliseconds(),
 	})
 
 	return &user, nil
@@ -101,14 +115,17 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*domain.User, er
 func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
 	query := "SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 100"
 
-	r.logWithTrace(ctx, "Executing SQL query", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s", query), logrus.Fields{
 		"query": query,
 	})
 
+	startTime := time.Now()
 	rows, err := r.db.QueryContext(ctx, query)
+	duration := time.Since(startTime)
 	if err != nil {
-		r.logErrorWithTrace(ctx, "Failed to execute SQL query", err, logrus.Fields{
+		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [duration: %v]", query, duration), err, logrus.Fields{
 			"query": query,
+			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("failed to query users: %w", err)
 	}
@@ -123,8 +140,9 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
 		users = append(users, &user)
 	}
 
-	r.logWithTrace(ctx, "Users retrieved from database", logrus.Fields{
+	r.logWithTrace(ctx, fmt.Sprintf("SQL result: Retrieved %d users [duration: %v]", len(users), duration), logrus.Fields{
 		"users.count": len(users),
+		"sql.duration_ms": duration.Milliseconds(),
 	})
 
 	return users, nil

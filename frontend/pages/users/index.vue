@@ -55,13 +55,41 @@
       </div>
     </div>
 
+    <!-- Datadog Test Endpoints -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">Datadog Test Endpoints</h5>
+      </div>
+      <div class="card-body">
+        <p class="text-muted">
+          These endpoints are for demonstrating Datadog APM features. Check traces in Datadog after calling them.
+        </p>
+        <div class="d-flex gap-2">
+          <button @click="testSlowEndpoint" class="btn btn-outline-warning" :disabled="testingSlowEndpoint">
+            <span v-if="testingSlowEndpoint">Testing...</span>
+            <span v-else>Test Slow Endpoint (2s delay)</span>
+          </button>
+          <button @click="testErrorEndpoint" class="btn btn-outline-danger" :disabled="testingErrorEndpoint">
+            <span v-if="testingErrorEndpoint">Testing...</span>
+            <span v-else>Test Error Endpoint</span>
+          </button>
+        </div>
+        <div v-if="testSlowMessage" class="alert alert-info mt-3" role="alert">
+          {{ testSlowMessage }}
+        </div>
+        <div v-if="testErrorMessage" class="alert alert-warning mt-3" role="alert">
+          {{ testErrorMessage }}
+        </div>
+      </div>
+    </div>
+
     <!-- Users List -->
     <div class="card shadow-sm">
       <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Users List</h5>
         <button @click="fetchUsers" class="btn btn-light btn-sm" :disabled="loading">
           <span v-if="loading">Loading...</span>
-          <span v-else>🔄 Refresh</span>
+          <span v-else>Refresh</span>
         </button>
       </div>
       <div class="card-body">
@@ -170,6 +198,59 @@ const createMessage = ref('')
 const createError = ref('')
 
 const selectedUser = ref<User | null>(null)
+
+// Test endpoints
+const testingSlowEndpoint = ref(false)
+const testingErrorEndpoint = ref(false)
+const testSlowMessage = ref('')
+const testErrorMessage = ref('')
+
+// Test slow endpoint
+const testSlowEndpoint = async () => {
+  testingSlowEndpoint.value = true
+  testSlowMessage.value = ''
+
+  try {
+    const startTime = Date.now()
+    const response = await fetch(`${apiBase}/api/slow`)
+    const endTime = Date.now()
+    const data = await response.json()
+
+    if (data.success) {
+      testSlowMessage.value = `Slow endpoint responded in ${endTime - startTime}ms. Check Datadog APM for trace details!`
+      setTimeout(() => {
+        testSlowMessage.value = ''
+      }, 5000)
+    }
+  } catch (err) {
+    testSlowMessage.value = 'Failed to call slow endpoint'
+    console.error(err)
+  } finally {
+    testingSlowEndpoint.value = false
+  }
+}
+
+// Test error endpoint
+const testErrorEndpoint = async () => {
+  testingErrorEndpoint.value = true
+  testErrorMessage.value = ''
+
+  try {
+    const response = await fetch(`${apiBase}/api/error`)
+    const data = await response.json()
+
+    // Error endpoint always returns error
+    testErrorMessage.value = `Error endpoint called successfully. Error trace sent to Datadog: "${data.message}"`
+    setTimeout(() => {
+      testErrorMessage.value = ''
+    }, 5000)
+  } catch (err) {
+    testErrorMessage.value = 'Failed to call error endpoint'
+    console.error(err)
+  } finally {
+    testingErrorEndpoint.value = false
+  }
+}
 
 // Fetch users
 const fetchUsers = async () => {
