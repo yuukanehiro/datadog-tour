@@ -1,0 +1,147 @@
+services:
+  # Datadog Agent
+  datadog:
+    image: gcr.io/datadoghq/agent:7
+    container_name: datadog-agent
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE:-datadoghq.com}
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_APM_RECEIVER_SOCKET=/var/run/datadog/apm.socket
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+      - DD_PROCESS_AGENT_ENABLED=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_DOGSTATSD_SOCKET=/var/run/datadog/dsd.socket
+      - DD_HOSTNAME=datadog-tour-local
+      - DD_TAGS=env:development project:datadog-tour
+      - DD_CONTAINER_EXCLUDE=name:datadog-agent
+    volumes:
+      - /var/run/datadog:/var/run/datadog
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "8126:8126"  # APM
+      - "8125:8125/udp"  # DogStatsD
+    networks:
+      - datadog-network
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: datadog-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=datadog_demo
+      - MYSQL_USER=demouser
+      - MYSQL_PASSWORD=demopassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command:
+      - --performance-schema=ON
+      - --max-connections=200
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - datadog-network
+    labels:
+      com.datadoghq.ad.check_names: '["mysql"]'
+      com.datadoghq.ad.init_configs: '[{}]'
+      com.datadoghq.ad.instances: '[{"server": "%%host%%", "user": "root", "pass": "rootpassword", "port": "3306"}]'
+      com.datadoghq.ad.logs: '[{"source": "mysql", "service": "mysql"}]'
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: datadog-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - datadog-network
+    labels:
+      com.datadoghq.ad.check_names: '["redis"]'
+      com.datadoghq.ad.init_configs: '[{}]'
+      com.datadoghq.ad.instances: '[{"host": "%%host%%", "port": 6379}]'
+      com.datadoghq.ad.logs: '[{"source": "redis", "service": "redis"}]'
+
+  # Golang API Application
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: datadog-api
+    environment:
+      # Datadog Configuration
+      - DD_AGENT_HOST=datadog
+      - DD_TRACE_AGENT_PORT=8126
+      - DD_TRACE_AGENT_URL=unix:///var/run/datadog/apm.socket
+      - DD_DOGSTATSD_URL=unix:///var/run/datadog/dsd.socket
+      - DD_ENV=development
+      - DD_SERVICE=datadog-tour-api
+      - DD_VERSION=1.0.0
+      - DD_LOGS_INJECTION=true
+      - DD_PROFILING_ENABLED=true
+      # Application Configuration
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=demouser
+      - MYSQL_PASSWORD=demopassword
+      - MYSQL_DATABASE=datadog_demo
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - /var/run/datadog:/var/run/datadog
+    ports:
+      - "8080:8080"
+    depends_on:
+      datadog:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - datadog-network
+    labels:
+      com.datadoghq.ad.logs: '[{"source": "golang", "service": "datadog-tour-api"}]'
+
+  # Nuxt.js Frontend Application
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: datadog-frontend
+    environment:
+      - NUXT_PUBLIC_API_BASE=http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - datadog-network
+    labels:
+      com.datadoghq.ad.logs: '[{"source": "nodejs", "service": "datadog-tour-frontend"}]'
+
+volumes:
+  mysql-data:
+  redis-data:
+
+networks:
+  datadog-network:
+    driver: bridge
