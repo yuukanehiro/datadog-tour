@@ -268,7 +268,7 @@ rows.Scan の横幅が広い
 **例**:
 ```go
 // user_repository.go
-func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
+func (r *UserRepository) FindAll(ctx context.Context) ([]*entities.User, error) {
     query := "SELECT * FROM users"
     rows, err := r.db.QueryContext(ctx, query)  // CPU: 5%
     if err != nil {
@@ -276,9 +276,9 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
     }
     defer rows.Close()
 
-    var users []*domain.User
+    var users []*entities.User
     for rows.Next() {                            // CPU: 10%
-        var user domain.User
+        var user entities.User
         if err := rows.Scan(&user.ID, &user.Name); err != nil { // CPU: 70% ← ホットスポット！
             continue
         }

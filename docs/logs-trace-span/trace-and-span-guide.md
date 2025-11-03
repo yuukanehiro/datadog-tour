@@ -154,7 +154,7 @@ import (
     "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*domain.User, error) {
+func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*entities.User, error) {
     // 親Spanのcontextから子Spanを作成
     span, ctx := tracer.StartSpanFromContext(ctx, "usecase.create_user")
     defer span.Finish()
@@ -163,14 +163,14 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*dom
     span.SetTag("user.name", name)
     span.SetTag("user.email", email)
 
-    user := &domain.User{
+    user := &entities.User{
         Name:      name,
         Email:     email,
         CreatedAt: time.Now(),
     }
 
     // Repository呼び出し（さらに子Spanが作成される）
-    if err := uc.userRepo.Create(ctx, user); err != nil {
+    if err := uc.RUser.Create(ctx, user); err != nil {
         span.SetTag("error", true)
         span.SetTag("error.msg", err.Error())
         return nil, err
@@ -181,72 +181,96 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*dom
 }
 ```
 
-### 4. Decorator Patternでトレーシングを分離
+### 4. Repository層でのSpan作成
 
-**ビジネスロジックとトレーシング責務を分離する推奨パターン**
+**MySQL Repositoryで直接Spanを作成する実装**
+
+このプロジェクトでは、Repository層で直接Spanを作成しています。
 
 ```go
-// internal/infrastructure/tracing/user_repository.go
+// internal/infrastructure/mysql/user_repository.go
+package mysql
+
+import (
+    "context"
+    "database/sql"
+    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+    "github.com/kanehiroyuu/datadog-tour/internal/domain/entities"
+)
+
+type UserRepository struct {
+    db     *sql.DB
+    logger *logrus.Logger
+}
+
+func (r *UserRepository) Create(ctx context.Context, user *entities.User) error {
+    // Repository層でSpanを作成
+    span, ctx := tracer.StartSpanFromContext(ctx, "mysql.create_user")
+    defer span.Finish()
+
+    query := "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)"
+
+    // SQL実行
+    result, err := r.db.ExecContext(ctx, query, user.Name, user.Email, user.CreatedAt)
+    if err != nil {
+        return fmt.Errorf("failed to insert user: %w", err)
+    }
+
+    id, err := result.LastInsertId()
+    if err != nil {
+        return fmt.Errorf("failed to get last insert id: %w", err)
+    }
+
+    user.ID = int(id)
+    return nil
+}
+```
+
+**メリット**:
+- トレーシングロジックがデータベース操作と同じ場所にある
+- シンプルで理解しやすい
+- デコレーターパターンの追加レイヤーが不要
+
+**Redisにはデコレーターパターンを使用**
+
+Redisのトレーシングには、よりリッチなメタデータ付与のためにデコレーターパターンを採用：
+
+```go
+// internal/infrastructure/tracing/cache_repository.go
 package tracing
 
 import (
     "context"
     "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
-    "github.com/kanehiroyuu/datadog-tour/internal/domain"
+    "github.com/kanehiroyuu/datadog-tour/internal/usecase/port"
 )
 
-// UserRepositoryTracerはUserRepositoryをラップしてトレーシング機能を追加
-type UserRepositoryTracer struct {
-    repo domain.UserRepository  // 実際のRepository
+type CacheRepositoryTracer struct {
+    repo port.CacheRepository
+    ttl  time.Duration
 }
 
-func NewUserRepositoryTracer(repo domain.UserRepository) *UserRepositoryTracer {
-    return &UserRepositoryTracer{repo: repo}
-}
-
-// CreateはRepositoryのCreate処理をトレーシング
-func (r *UserRepositoryTracer) Create(ctx context.Context, user *domain.User) error {
-    // Spanの作成（データベース操作のトレース）
-    span, ctx := tracer.StartSpanFromContext(ctx, "mysql.create_user")
+func (r *CacheRepositoryTracer) Set(ctx context.Context, key string, value interface{}) error {
+    span, ctx := tracer.StartSpanFromContext(ctx, "redis.set")
     defer span.Finish()
 
-    // データベース操作のメタデータ
-    span.SetTag("db.type", "mysql")
-    span.SetTag("db.operation", "INSERT")
-    span.SetTag("db.table", "users")
-    span.SetTag("user.name", user.Name)
-    span.SetTag("user.email", user.Email)
+    span.SetTag("db.type", "redis")
+    span.SetTag("db.operation", "SET")
+    span.SetTag("cache.key", key)
+    span.SetTag("cache.ttl", r.ttl.Seconds())
 
-    // 実際のRepository処理を実行
-    err := r.repo.Create(ctx, user)
-
+    err := r.repo.Set(ctx, key, value)
     if err != nil {
         span.SetTag("error", true)
         span.SetTag("error.msg", err.Error())
+        span.SetTag("cache.success", false)
         return err
     }
 
-    span.SetTag("user.id", user.ID)
+    span.SetTag("cache.success", true)
     return nil
 }
 ```
-
-**main.goでの使用例**
-```go
-// ベースRepositoryの作成（トレーシングなし）
-userRepoBase := mysql.NewUserRepository(db, logger)
-
-// Tracerでラップ
-userRepo := tracing.NewUserRepositoryTracer(userRepoBase)
-
-// UseCaseに渡す
-userUseCase := usecase.NewUserUseCase(userRepo, cacheRepo, logger)
-```
-
-**メリット**:
-- ビジネスロジックがクリーンに保たれる
-- トレーシングのON/OFFが簡単
-- テスト時にトレーシングなしのRepositoryを使用可能
 
 ---
 
@@ -452,11 +476,11 @@ span.SetTag("credit_card", "1234-5678")      // NG: クレカ番号
 ### 3. エラーハンドリング
 
 ```go
-func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*domain.User, error) {
+func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*entities.User, error) {
     span, ctx := tracer.StartSpanFromContext(ctx, "usecase.create_user")
     defer span.Finish()
 
-    user, err := uc.userRepo.Create(ctx, &domain.User{Name: name, Email: email})
+    user, err := uc.RUser.Create(ctx, &entities.User{Name: name, Email: email})
     if err != nil {
         // エラー情報をSpanに記録
         span.SetTag("error", true)
@@ -681,4 +705,4 @@ docker-compose logs api | jq .
 
 - [Datadog APM Documentation](https://docs.datadoghq.com/tracing/)
 - [dd-trace-go GitHub](https://github.com/DataDog/dd-trace-go)
-- [本プロジェクトの実装例](../cmd/api/main.go)
+- [本プロジェクトの実装例](../../internal/)

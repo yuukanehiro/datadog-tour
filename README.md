@@ -80,6 +80,10 @@ make test-api
 ### ヘルスチェック
 
 ```bash
+# ルート
+GET /
+
+# ヘルスチェック
 GET /health
 ```
 
@@ -98,24 +102,8 @@ Content-Type: application/json
 # ユーザー一覧取得
 GET /api/users
 
-# 特定のユーザー取得
+# 特定のユーザー取得（Redisキャッシュ対応）
 GET /api/users/{id}
-```
-
-### キャッシュ操作
-
-```bash
-# キャッシュ設定
-POST /api/cache/set
-Content-Type: application/json
-
-{
-  "key": "my-key",
-  "value": "my-value"
-}
-
-# キャッシュ取得
-GET /api/cache/get/{key}
 ```
 
 ### テスト用エンドポイント
@@ -318,24 +306,45 @@ make build
 
 ## ディレクトリ構成
 
+Clean Architectureに準拠した構成:
+
 ```
 .
 ├── cmd/
 │   └── api/
-│       └── main.go         # アプリケーションのメインコード
+│       ├── main.go          # アプリケーションのエントリーポイント
+│       └── setup.go         # リポジトリとルーターのセットアップ
+├── internal/
+│   ├── common/
+│   │   ├── context/         # コンテキスト管理（Logger, RepoLocator）
+│   │   └── logging/         # トレース対応ロギング
+│   ├── domain/
+│   │   └── entities/        # ドメインエンティティ（User）
+│   ├── usecase/
+│   │   ├── port/            # ポートインターフェース定義
+│   │   └── user_usecase.go  # ユーザーユースケース
+│   ├── infrastructure/
+│   │   ├── mysql/           # MySQL実装
+│   │   ├── redis/           # Redis実装
+│   │   └── tracing/         # トレーシングデコレーター
+│   └── presentation/
+│       ├── handler/         # HTTPハンドラー
+│       ├── middleware/      # ミドルウェア（CORS, Logger, RepoLocator）
+│       └── router/          # ルーティング設定
 ├── docker/
-│   ├── Dockerfile          # Golang アプリケーションのDockerfile
-│   └── docker-compose.yml  # Docker Compose設定
+│   ├── Dockerfile           # Golang アプリケーションのDockerfile
+│   └── docker-compose.yml   # Docker Compose設定
 ├── docs/
-│   └── datadog-14days-curriculum.md  # 学習カリキュラム
+│   ├── logs-trace-span/     # ログとトレースのガイド
+│   └── apm-profiler/        # APMとプロファイラーのガイド
 ├── init/
-│   └── init.sql            # MySQLの初期化スクリプト
-├── go.mod                  # Go依存関係
-├── go.sum                  # Go依存関係チェックサム
-├── Makefile                # 便利なコマンド集
-├── .env.example            # 環境変数のサンプル
-├── .gitignore              # Git除外設定
-└── README.md               # このファイル
+│   └── init.sql             # MySQLの初期化スクリプト
+├── go.mod                   # Go依存関係
+├── go.sum                   # Go依存関係チェックサム
+├── Makefile                 # 便利なコマンド集
+├── .env.example             # 環境変数のサンプル
+├── .gitignore               # Git除外設定
+└── README.md                # このファイル
 ```
 
 ## 実装されているDatadog機能
@@ -368,9 +377,38 @@ make build
 - ヒーププロファイリング
 - パフォーマンスボトルネックの特定
 
+## アーキテクチャの特徴
+
+### Clean Architecture
+
+このプロジェクトはClean Architectureパターンを採用しています：
+
+- **Entities層**: ドメインエンティティ（`internal/domain/entities/`）
+- **UseCase層**: ビジネスロジック（`internal/usecase/`）
+  - Port/Adapter パターンでインフラストラクチャから独立
+- **Infrastructure層**: 外部システムとの接続（`internal/infrastructure/`）
+  - MySQL, Redis, トレーシングデコレーター
+- **Presentation層**: HTTPインターフェース（`internal/presentation/`）
+  - Handler, Middleware, Router
+
+### 依存関係の注入
+
+- コンテキストベースの依存性注入
+- `LoggerMiddleware`: リクエストごとにロガーを注入
+- `RepoLocatorMiddleware`: リポジトリのロケーターを注入
+- ハンドラー内でUseCaseを初期化（テスタビリティ向上）
+
+### トレーシング戦略
+
+- **Repository層**: MySQLリポジトリで直接スパンを作成
+- **UseCase層**: ビジネスロジックのスパンを作成
+- **Handler層**: HTTPリクエストのスパンを作成
+- ログにトレースID/スパンIDを自動注入
+
 ## 参考リソース
 
 - [Datadog Documentation](https://docs.datadoghq.com/)
 - [dd-trace-go GitHub](https://github.com/DataDog/dd-trace-go)
 - [Datadog APM Guide](https://docs.datadoghq.com/tracing/)
-- [カリキュラム](./docs/datadog-14days-curriculum.md)
+- [ログとトレースのガイド](./docs/logs-trace-span/trace-and-span-guide.md)
+- [APMとプロファイラーのガイド](./docs/apm-profiler/profiler-guide.md)

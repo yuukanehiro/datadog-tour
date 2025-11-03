@@ -45,12 +45,8 @@ test-api: ## Run API tests
 		-d '{"name":"Test User","email":"test@example.com"}' | jq
 	@echo "\nGetting all users..."
 	@curl -s http://localhost:8080/api/users | jq
-	@echo "\nSetting cache..."
-	@curl -s -X POST http://localhost:8080/api/cache/set \
-		-H "Content-Type: application/json" \
-		-d '{"key":"test-key","value":"test-value"}' | jq
-	@echo "\nGetting cache..."
-	@curl -s http://localhost:8080/api/cache/get/test-key | jq
+	@echo "\nGetting user by ID (cache test)..."
+	@curl -s http://localhost:8080/api/users/1 | jq
 	@echo "\nTesting slow endpoint..."
 	@curl -s http://localhost:8080/api/slow | jq
 	@echo "\nTesting error endpoint..."
