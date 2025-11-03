@@ -1,30 +1,23 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
+	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/usecase"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 // UserHandler handles user-related HTTP requests
-type UserHandler struct {
-	userUseCase *usecase.UserUseCase
-	logger      *logrus.Logger
-}
+type UserHandler struct{}
 
 // NewUserHandler creates a new UserHandler
-func NewUserHandler(userUseCase *usecase.UserUseCase, logger *logrus.Logger) *UserHandler {
-	return &UserHandler{
-		userUseCase: userUseCase,
-		logger:      logger,
-	}
+func NewUserHandler() *UserHandler {
+	return &UserHandler{}
 }
 
 // CreateUserRequest represents the request body for creating a user
@@ -42,6 +35,15 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.create_user")
 	defer span.Finish() // ここでspanを終了させる, これによりspanのdurationが計測される
 
+	logger := appcontext.GetLogger(ctx)
+	repoLocator := appcontext.GetRepoLocator(ctx)
+
+	interactor := &usecase.UserUseCase{
+		Logger: logger,
+		RUser:  repoLocator.UserRepo,
+		RCache: repoLocator.CacheRepo,
+	}
+
 	// Add request metadata to span
 	span.SetTag("http.method", r.Method)
 	span.SetTag("http.url", r.URL.Path)
@@ -49,7 +51,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logWithError(ctx, "Failed to decode request body", err)
+		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to decode request body", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
 		RespondErrorWithTrace(ctx, w, http.StatusBadRequest, "Invalid request body")
@@ -60,9 +62,9 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	span.SetTag("user.name", req.Name)
 	span.SetTag("user.email", req.Email)
 
-	user, err := h.userUseCase.CreateUser(ctx, req.Name, req.Email)
+	user, err := interactor.CreateUser(ctx, req.Name, req.Email)
 	if err != nil {
-		h.logWithError(ctx, "Failed to create user", err)
+		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to create user", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
 		RespondErrorWithTrace(ctx, w, http.StatusInternalServerError, "Failed to create user")
@@ -72,7 +74,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	// Add result to span
 	span.SetTag("user.id", user.ID)
 
-	h.logWithTrace(ctx, "User created successfully")
+	logging.LogWithTrace(ctx, logger, "handler", "User created successfully", nil)
 	RespondSuccessWithTrace(ctx, w, http.StatusCreated, user, "User created successfully")
 }
 
@@ -80,6 +82,15 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.get_user")
 	defer span.Finish()
+
+	logger := appcontext.GetLogger(ctx)
+	repoLocator := appcontext.GetRepoLocator(ctx)
+
+	interactor := &usecase.UserUseCase{
+		Logger: logger,
+		RUser:  repoLocator.UserRepo,
+		RCache: repoLocator.CacheRepo,
+	}
 
 	// Add request metadata to span
 	span.SetTag("http.method", r.Method)
@@ -99,9 +110,9 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	span.SetTag("user.id", id)
 
-	user, err := h.userUseCase.GetUser(ctx, id)
+	user, err := interactor.GetUser(ctx, id)
 	if err != nil {
-		h.logWithError(ctx, "Failed to get user", err)
+		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to get user", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
 		RespondErrorWithTrace(ctx, w, http.StatusNotFound, "User not found")
@@ -112,7 +123,7 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	span.SetTag("user.name", user.Name)
 	span.SetTag("user.email", user.Email)
 
-	h.logWithTrace(ctx, "User retrieved successfully")
+	logging.LogWithTrace(ctx, logger, "handler", "User retrieved successfully", nil)
 	RespondSuccessWithTrace(ctx, w, http.StatusOK, user, "")
 }
 
@@ -121,14 +132,23 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.get_all_users")
 	defer span.Finish()
 
+	logger := appcontext.GetLogger(ctx)
+	repoLocator := appcontext.GetRepoLocator(ctx)
+
+	interactor := &usecase.UserUseCase{
+		Logger: logger,
+		RUser:  repoLocator.UserRepo,
+		RCache: repoLocator.CacheRepo,
+	}
+
 	// Add request metadata to span
 	span.SetTag("http.method", r.Method)
 	span.SetTag("http.url", r.URL.Path)
 	span.SetTag("http.user_agent", r.UserAgent())
 
-	users, err := h.userUseCase.GetAllUsers(ctx)
+	users, err := interactor.GetAllUsers(ctx)
 	if err != nil {
-		h.logWithError(ctx, "Failed to get users", err)
+		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to get users", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
 		RespondErrorWithTrace(ctx, w, http.StatusInternalServerError, "Failed to retrieve users")
@@ -138,14 +158,6 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	// Add result metadata
 	span.SetTag("users.count", len(users))
 
-	h.logWithTrace(ctx, "Users retrieved successfully")
+	logging.LogWithTrace(ctx, logger, "handler", "Users retrieved successfully", nil)
 	RespondSuccessWithTrace(ctx, w, http.StatusOK, users, "")
-}
-
-func (h *UserHandler) logWithTrace(ctx context.Context, message string) {
-	logging.LogWithTrace(ctx, h.logger, "handler", message, nil)
-}
-
-func (h *UserHandler) logWithError(ctx context.Context, message string, err error) {
-	logging.LogErrorWithTrace(ctx, h.logger, "handler", message, err, nil)
 }

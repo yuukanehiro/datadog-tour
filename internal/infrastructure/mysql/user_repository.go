@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
-	"github.com/kanehiroyuu/datadog-tour/internal/domain"
+	"github.com/kanehiroyuu/datadog-tour/internal/domain/entities"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-// UserRepository implements domain.UserRepository for MySQL (without tracing)
+// UserRepository implements entities.UserRepository for MySQL (without tracing)
 type UserRepository struct {
 	db     *sql.DB
 	logger *logrus.Logger
@@ -26,7 +27,10 @@ func NewUserRepository(db *sql.DB, logger *logrus.Logger) *UserRepository {
 }
 
 // Create creates a new user
-func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+func (r *UserRepository) Create(ctx context.Context, user *entities.User) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "mysql.create_user")
+	defer span.Finish()
+
 	query := "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)"
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: name=%s, email=%s, created_at=%v]", query, user.Name, user.Email, user.CreatedAt), logrus.Fields{
@@ -66,7 +70,10 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 }
 
 // FindByID finds a user by ID
-func (r *UserRepository) FindByID(ctx context.Context, id int) (*domain.User, error) {
+func (r *UserRepository) FindByID(ctx context.Context, id int) (*entities.User, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "mysql.find_user_by_id")
+	defer span.Finish()
+
 	query := "SELECT id, name, email, created_at FROM users WHERE id = ?"
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: id=%d]", query, id), logrus.Fields{
@@ -74,7 +81,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*domain.User, er
 		"user.id": id,
 	})
 
-	var user domain.User
+	var user entities.User
 
 	startTime := time.Now()
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -112,7 +119,10 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*domain.User, er
 }
 
 // FindAll retrieves all users
-func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
+func (r *UserRepository) FindAll(ctx context.Context) ([]*entities.User, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "mysql.find_all_users")
+	defer span.Finish()
+
 	query := "SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 100"
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s", query), logrus.Fields{
@@ -131,9 +141,9 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*domain.User, error) {
 	}
 	defer rows.Close()
 
-	var users []*domain.User
+	var users []*entities.User
 	for rows.Next() {
-		var user domain.User
+		var user entities.User
 		if err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt); err != nil {
 			continue
 		}

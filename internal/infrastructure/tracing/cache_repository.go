@@ -4,18 +4,18 @@ import (
 	"context"
 	"time"
 
-	"github.com/kanehiroyuu/datadog-tour/internal/domain"
+	"github.com/kanehiroyuu/datadog-tour/internal/usecase/port"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 // CacheRepositoryTracer wraps a CacheRepository with tracing
 type CacheRepositoryTracer struct {
-	repo domain.CacheRepository
+	repo port.CacheRepository
 	ttl  time.Duration
 }
 
 // NewCacheRepositoryTracer creates a new tracing decorator for CacheRepository
-func NewCacheRepositoryTracer(repo domain.CacheRepository, ttl time.Duration) domain.CacheRepository {
+func NewCacheRepositoryTracer(repo port.CacheRepository, ttl time.Duration) port.CacheRepository {
 	return &CacheRepositoryTracer{
 		repo: repo,
 		ttl:  ttl,

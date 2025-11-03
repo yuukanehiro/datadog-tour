@@ -10,7 +10,7 @@ import (
 )
 
 // LogWithTrace logs a message with trace information and caller details
-func LogWithTrace(ctx context.Context, logger *logrus.Logger, layer, message string, fields logrus.Fields) {
+func LogWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, fields logrus.Fields) {
 	if fields == nil {
 		fields = logrus.Fields{}
 	}
@@ -41,7 +41,7 @@ func LogWithTrace(ctx context.Context, logger *logrus.Logger, layer, message str
 }
 
 // LogErrorWithTrace logs an error with trace information and caller details
-func LogErrorWithTrace(ctx context.Context, logger *logrus.Logger, layer, message string, err error, fields logrus.Fields) {
+func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, err error, fields logrus.Fields) {
 	if fields == nil {
 		fields = logrus.Fields{}
 	}

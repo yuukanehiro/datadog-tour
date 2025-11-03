@@ -9,19 +9,13 @@ import (
 	"github.com/DataDog/datadog-go/v5/statsd"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 	sqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/database/sql"
-	gorillatrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 	redistrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/redis/go-redis.v9"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
 
-	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/mysql"
-	infraredis "github.com/kanehiroyuu/datadog-tour/internal/infrastructure/redis"
-	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/tracing"
-	"github.com/kanehiroyuu/datadog-tour/internal/presentation/handler"
-	"github.com/kanehiroyuu/datadog-tour/internal/usecase"
+	"github.com/kanehiroyuu/datadog-tour/internal/presentation/middleware"
 )
 
 var logger *logrus.Logger
@@ -123,65 +117,23 @@ func main() {
 	}
 	logger.Info("Successfully connected to Redis")
 
-	// Setup repositories (without tracing)
-	userRepoBase := mysql.NewUserRepository(db, logger)
-	cacheRepoBase := infraredis.NewCacheRepository(redisClient)
-
-	// Wrap repositories with tracing decorators
-	userRepo := tracing.NewUserRepositoryTracer(userRepoBase)
-	cacheRepo := tracing.NewCacheRepositoryTracer(cacheRepoBase, cacheRepoBase.GetTTL())
-
-	// Setup use cases
-	userUseCase := usecase.NewUserUseCase(userRepo, cacheRepo, logger)
-
-	// Setup handlers
-	healthHandler := handler.NewHealthHandler(logger)
-	userHandler := handler.NewUserHandler(userUseCase, logger)
-	testHandler := handler.NewTestHandler(logger)
-
-	// Setup router with tracing
-	router := gorillatrace.NewRouter(gorillatrace.WithServiceName(os.Getenv("DD_SERVICE")))
-
-	// Health endpoints
-	router.HandleFunc("/", healthHandler.HealthCheck).Methods("GET")
-	router.HandleFunc("/health", healthHandler.HealthCheck).Methods("GET")
-
-	// User endpoints
-	router.HandleFunc("/api/users", userHandler.CreateUser).Methods("POST")
-	router.HandleFunc("/api/users", userHandler.GetAllUsers).Methods("GET")
-	router.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
-
-	// Test endpoints for Datadog demonstration
-	router.HandleFunc("/api/slow", testHandler.SlowEndpoint).Methods("GET")
-	router.HandleFunc("/api/error", testHandler.ErrorEndpoint).Methods("GET")
+	// Setup repositories and router
+	repoLocator := SetupRepositories(db, redisClient, logger)
+	appRouter := SetupRouter()
 
 	// Setup CORS
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-		},
-		AllowedMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodDelete,
-			http.MethodOptions,
-		},
-		AllowedHeaders: []string{
-			"Accept",
-			"Authorization",
-			"Content-Type",
-			"X-CSRF-Token",
-		},
-		AllowCredentials: true,
-		MaxAge:           300,
-	})
+	corsHandler := middleware.NewCORSHandler()
+
+	// Apply middlewares
+	loggerMiddleware := middleware.LoggerMiddleware(logger)
+	repoLocatorMiddleware := middleware.RepoLocatorMiddleware(repoLocator)
+
+	appRouterWithMiddleware := loggerMiddleware(repoLocatorMiddleware(appRouter))
 
 	// Start server
 	port := "8080"
 	logger.WithField("port", port).Info("Starting server")
-	if err := http.ListenAndServe(":"+port, corsHandler.Handler(router)); err != nil {
+	if err := http.ListenAndServe(":"+port, corsHandler.Handler(appRouterWithMiddleware)); err != nil {
 		logger.WithError(err).Fatal("Server failed to start")
 	}
 }
