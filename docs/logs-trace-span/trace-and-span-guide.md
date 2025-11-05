@@ -5,10 +5,11 @@
 2. [TraceIDとSpanIDの違いと使い分け](#traceidとspanidの違いと使い分け)
 3. [実装方法（Go）](#実装方法go)
 4. [ログとの統合](#ログとの統合)
-5. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
-6. [Datadogでの確認方法](#datadogでの確認方法)
-7. [ベストプラクティス](#ベストプラクティス)
-8. [トラブルシューティング](#トラブルシューティング)
+5. [SQL自動ログ機能（GORM形式）](#sql自動ログ機能gorm形式)
+6. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
+7. [Datadogでの確認方法](#datadogでの確認方法)
+8. [ベストプラクティス](#ベストプラクティス)
+9. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
