@@ -42,13 +42,6 @@ const (
 	ErrorTypeServiceUnavail = "https://datadog-tour.example.com/errors/service-unavailable"
 )
 
-// RespondJSON sends a JSON response
-func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
 // RespondJSONWithTrace sends a JSON response with trace headers
 func RespondJSONWithTrace(ctx context.Context, w http.ResponseWriter, status int, data interface{}) {
 	// Extract trace information from context
@@ -67,31 +60,6 @@ func RespondJSONWithTrace(ctx context.Context, w http.ResponseWriter, status int
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
-}
-
-// RespondError sends an error response
-func RespondError(w http.ResponseWriter, status int, message string) {
-	RespondJSON(w, status, Response{
-		Success: false,
-		Message: message,
-	})
-}
-
-// RespondErrorWithTrace sends an error response with trace information
-func RespondErrorWithTrace(ctx context.Context, w http.ResponseWriter, status int, message string) {
-	RespondJSONWithTrace(ctx, w, status, Response{
-		Success: false,
-		Message: message,
-	})
-}
-
-// RespondSuccess sends a success response
-func RespondSuccess(w http.ResponseWriter, status int, data interface{}, message string) {
-	RespondJSON(w, status, Response{
-		Success: true,
-		Data:    data,
-		Message: message,
-	})
 }
 
 // RespondSuccessWithTrace sends a success response with trace information

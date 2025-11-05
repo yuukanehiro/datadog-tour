@@ -2,12 +2,13 @@
 
 ## 目次
 1. [TraceとSpanとは](#traceとspanとは)
-2. [実装方法（Go）](#実装方法go)
-3. [ログとの統合](#ログとの統合)
-4. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
-5. [Datadogでの確認方法](#datadogでの確認方法)
-6. [ベストプラクティス](#ベストプラクティス)
-7. [トラブルシューティング](#トラブルシューティング)
+2. [TraceIDとSpanIDの違いと使い分け](#traceidとspanidの違いと使い分け)
+3. [実装方法（Go）](#実装方法go)
+4. [ログとの統合](#ログとの統合)
+5. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
+6. [Datadogでの確認方法](#datadogでの確認方法)
+7. [ベストプラクティス](#ベストプラクティス)
+8. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -77,6 +78,195 @@ Trace ID: 1234567890 (1つのリクエスト全体)
 | **Duration** | 処理時間 | `200ms` |
 | **Start Time** | 開始時刻 | `2025-11-03T01:00:00Z` |
 | **Tags** | メタデータ | `user.id=123, error=true` |
+
+---
+
+## TraceIDとSpanIDの違いと使い分け
+
+### TraceID vs SpanID: 対比表
+
+| 項目 | TraceID | SpanID |
+|------|---------|--------|
+| **識別対象** | リクエスト全体 | 個々の処理単位 |
+| **スコープ** | 1つのTraceに1つのID | 1つのTraceに複数のID |
+| **共有範囲** | すべてのSpanで同じ | 各Spanで異なる |
+| **用途** | リクエスト全体の追跡 | 特定の処理の追跡 |
+| **ログでの使い方** | リクエストに関連する全ログを検索 | 特定の処理に関連するログを検索 |
+| **エラー追跡** | どのリクエストでエラーが発生したか | どの処理でエラーが発生したか |
+
+### 具体例：GET /api/users/1 のリクエスト
+
+```
+リクエスト: GET /api/users/1
+↓
+Trace ID: 12345678 ← このリクエスト全体を識別
+├─ Span ID: 100 (handler.get_user)          ← HTTPハンドラー
+│  ├─ Span ID: 101 (usecase.get_user)       ← ビジネスロジック
+│  │  ├─ Span ID: 102 (cache.get)           ← キャッシュ確認
+│  │  └─ Span ID: 103 (mysql.query)         ← DB問い合わせ (ここでエラー)
+│  └─ Span ID: 104 (response.format)        ← レスポンス整形
+```
+
+この例では:
+- **Trace ID = 12345678**: リクエスト全体で同じ値
+- **Span ID**: 各処理ごとに異なる値 (100, 101, 102, 103, 104)
+
+### ユースケース1: エラーが発生した場合
+
+```json
+{
+  "level": "error",
+  "message": "[repository] Database query failed",
+  "dd.trace_id": "12345678",
+  "dd.span_id": "103",
+  "error.notify": true,
+  "db.query": "SELECT * FROM users WHERE id = ?"
+}
+```
+
+**このログから分かること**:
+- **dd.trace_id: 12345678** → **どのリクエスト**でエラーが発生したか
+- **dd.span_id: 103** → そのリクエストの中の**どの処理（mysql.query）**でエラーが発生したか
+
+### ユースケース2: Datadog Logs Explorerでの検索
+
+#### TraceIDでの検索
+```
+dd.trace_id:12345678
+```
+
+**結果**: このリクエストに関連する**すべてのログ**が時系列で表示
+```
+[handler] GET /api/users/1 started          | dd.span_id: 100
+[usecase] Retrieving user from cache       | dd.span_id: 101
+[cache] Cache miss for user:1              | dd.span_id: 102
+[repository] Querying database             | dd.span_id: 103
+[repository] Database query failed         | dd.span_id: 103 (ERROR)
+[handler] Request failed with 500          | dd.span_id: 100 (ERROR)
+```
+
+#### SpanIDでの検索
+```
+dd.trace_id:12345678 AND dd.span_id:103
+```
+
+**結果**: **特定の処理（mysql.query）に関連するログのみ**表示
+```
+[repository] Querying database             | dd.span_id: 103
+[repository] Database query failed         | dd.span_id: 103 (ERROR)
+```
+
+### ユースケース3: RFC 9457エラーレスポンスでの利用
+
+このプロジェクトでは、エラーレスポンスに両方のIDを含めています。
+
+**エラーレスポンス例**:
+```json
+{
+  "type": "https://datadog-tour.example.com/errors/internal",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "Database connection lost unexpectedly",
+  "instance": "/api/users/1",
+  "trace_id": "12345678",
+  "span_id": "103",
+  "notify": true,
+  "db.host": "mysql.example.com"
+}
+```
+
+**クライアント側での利用**:
+```javascript
+// エラーレスポンスを取得
+const response = await fetch('/api/users/1');
+if (!response.ok) {
+  const error = await response.json();
+
+  // サポートに問い合わせる際に両方のIDを伝える
+  console.error('Error occurred:', {
+    trace_id: error.trace_id,    // → リクエスト全体を特定
+    span_id: error.span_id,      // → 具体的なエラー箇所を特定
+    message: error.detail
+  });
+
+  // Datadogで検索: dd.trace_id:12345678
+}
+```
+
+### ユースケース4: Datadog APM Traces画面での確認
+
+**APM Traces画面**:
+```
+Trace ID: 12345678                           ← クリックするとFlame Graph表示
+  Duration: 250ms
+  Status: Error
+
+  ├─ handler.get_user (Span ID: 100)        ← 各Spanをクリックで詳細表示
+  │  Duration: 245ms
+  │  Status: Error
+  │
+  ├──├─ usecase.get_user (Span ID: 101)
+  │  │  Duration: 200ms
+  │  │
+  │  ├──├─ cache.get (Span ID: 102)
+  │  │  │  Duration: 10ms
+  │  │  │  Cache miss
+  │  │  │
+  │  │  └─ mysql.query (Span ID: 103)
+  │  │     Duration: 180ms
+  │  │     Status: Error ← ここでエラー発生
+  │  │     Error: connection timeout
+```
+
+**Span ID: 103をクリックすると**:
+- このSpanの詳細情報（Duration, Tags, Error）
+- このSpanに紐づくログ（dd.span_id:103で自動検索）
+- スタックトレース（設定している場合）
+
+### コード内での取得方法
+
+```go
+// internal/presentation/interface-adapter/response/response.go
+
+func RespondProblemWithTrace(ctx context.Context, w http.ResponseWriter, problem ProblemDetail) {
+    // Contextからtrace情報を取得
+    span, ok := tracer.SpanFromContext(ctx)
+    if ok {
+        spanContext := span.Context()
+
+        // TraceID: リクエスト全体を識別
+        traceID := spanContext.TraceID()
+
+        // SpanID: 現在の処理（この関数が呼ばれた場所）を識別
+        spanID := spanContext.SpanID()
+
+        // エラーレスポンスに両方を含める
+        problem.TraceID = fmt.Sprintf("%d", traceID)
+        problem.SpanID = fmt.Sprintf("%d", spanID)
+
+        // レスポンスヘッダーにも追加
+        w.Header().Set("X-Datadog-Trace-Id", fmt.Sprintf("%d", traceID))
+        w.Header().Set("X-Datadog-Span-Id", fmt.Sprintf("%d", spanID))
+    }
+
+    // エラーレスポンス送信
+    w.Header().Set("Content-Type", "application/problem+json")
+    w.WriteHeader(problem.Status)
+    json.NewEncoder(w).Encode(problem)
+}
+```
+
+### まとめ: いつ何を使うか
+
+| シーン | 使用するID | 目的 |
+|------|-----------|------|
+| リクエスト全体の流れを確認 | **TraceID** | すべてのログを時系列で表示 |
+| 特定の処理のログを確認 | **SpanID** | その処理に関連するログのみ表示 |
+| エラーの発生箇所を特定 | **両方** | リクエスト全体と具体的な処理を特定 |
+| クライアントからのエラー報告 | **TraceID** | サポートチームがリクエスト全体を追跡 |
+| パフォーマンスボトルネックの特定 | **SpanID** | 遅い処理を特定して最適化 |
+| ログからTraceへ移動 | **TraceID** | ログ詳細画面で「View Trace」をクリック |
+| TraceからSpanのログへ移動 | **SpanID** | Span詳細画面で「View Logs」をクリック |
 
 ---
 
