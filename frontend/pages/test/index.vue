@@ -104,6 +104,25 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Panic Endpoint -->
+              <div class="col-md-6 mb-3">
+                <div class="card">
+                  <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0">Panic Recovery Test</h5>
+                  </div>
+                  <div class="card-body">
+                    <p>Triggers a panic and tests recovery with trace_id logging</p>
+                    <button
+                      class="btn btn-danger"
+                      @click="callEndpoint('/api/panic')"
+                      :disabled="loading"
+                    >
+                      {{ loading && currentEndpoint === '/api/panic' ? 'Loading...' : 'Trigger Panic' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Response Display -->

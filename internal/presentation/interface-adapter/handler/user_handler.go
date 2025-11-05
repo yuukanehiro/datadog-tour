@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
-	"github.com/gorilla/mux"
+	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
@@ -28,12 +27,12 @@ type CreateUserRequest struct {
 }
 
 // CreateUser handles POST /api/users
-func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandler) CreateUser(c echo.Context) error {
 	//  各層でtracer.StartSpanFromContext(ctx, "span_name")を呼ぶと、dd-trace-goが自動的に：
 	//  - trace-idを生成（または親spanから継承）
 	//  - span-idを生成
 	//  - span.Finish()が呼ばれた時にDatadog Agentへ送信
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.create_user")
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.create_user")
 	defer span.Finish() // ここでspanを終了させる, これによりspanのdurationが計測される
 
 	logger := appcontext.GetLogger(ctx)
@@ -46,22 +45,21 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
-	span.SetTag("http.user_agent", r.UserAgent())
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
+	span.SetTag("http.user_agent", c.Request().UserAgent())
 
 	var req CreateUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := c.Bind(&req); err != nil {
 		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to decode request body", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
 		problem := response.NewValidationErrorProblem(
 			"Request body is not valid JSON or does not match expected schema",
-			r.URL.Path,
+			c.Request().URL.Path,
 		)
 		problem.Extra["parse_error"] = err.Error()
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	// Add request data to span
@@ -75,25 +73,28 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		span.SetTag("error.msg", err.Error())
 		problem := response.NewInternalErrorProblem(
 			"Failed to create user due to internal error",
-			r.URL.Path,
+			c.Request().URL.Path,
 			true,
 		)
 		problem.Extra["user.email"] = req.Email
 		problem.Extra["error"] = err.Error()
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	// Add result to span
 	span.SetTag("user.id", user.ID)
 
 	logging.LogWithTrace(ctx, logger, "handler", "User created successfully", nil)
-	response.RespondSuccessWithTrace(ctx, w, http.StatusCreated, user, "User created successfully")
+	return c.JSON(http.StatusCreated, map[string]any{
+		"success": true,
+		"data":    user,
+		"message": "User created successfully",
+	})
 }
 
 // GetUser handles GET /api/users/{id}
-func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.get_user")
+func (h *UserHandler) GetUser(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.get_user")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
@@ -106,12 +107,11 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
-	span.SetTag("http.user_agent", r.UserAgent())
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
+	span.SetTag("http.user_agent", c.Request().UserAgent())
 
-	vars := mux.Vars(r)
-	idStr := vars["id"]
+	idStr := c.Param("id")
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -119,11 +119,10 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		span.SetTag("error.msg", "Invalid user ID")
 		problem := response.NewValidationErrorProblem(
 			"User ID must be a valid integer",
-			r.URL.Path,
+			c.Request().URL.Path,
 		)
 		problem.Extra["provided_id"] = idStr
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	span.SetTag("user.id", id)
@@ -135,11 +134,10 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		span.SetTag("error.msg", err.Error())
 		problem := response.NewNotFoundProblem(
 			"User with the specified ID does not exist",
-			r.URL.Path,
+			c.Request().URL.Path,
 		)
 		problem.Extra["user.id"] = id
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	// Add result metadata
@@ -147,12 +145,15 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	span.SetTag("user.email", user.Email)
 
 	logging.LogWithTrace(ctx, logger, "handler", "User retrieved successfully", nil)
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, user, "")
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"data":    user,
+	})
 }
 
 // GetAllUsers handles GET /api/users
-func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.get_all_users")
+func (h *UserHandler) GetAllUsers(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.get_all_users")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
@@ -165,9 +166,9 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
-	span.SetTag("http.user_agent", r.UserAgent())
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
+	span.SetTag("http.user_agent", c.Request().UserAgent())
 
 	users, err := interactor.GetAllUsers(ctx)
 	if err != nil {
@@ -176,17 +177,19 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		span.SetTag("error.msg", err.Error())
 		problem := response.NewInternalErrorProblem(
 			"Failed to retrieve users from database",
-			r.URL.Path,
+			c.Request().URL.Path,
 			true,
 		)
 		problem.Extra["error"] = err.Error()
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	// Add result metadata
 	span.SetTag("users.count", len(users))
 
 	logging.LogWithTrace(ctx, logger, "handler", "Users retrieved successfully", nil)
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, users, "")
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"data":    users,
+	})
 }

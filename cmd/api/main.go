@@ -14,8 +14,6 @@ import (
 	redistrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/redis/go-redis.v9"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
-
-	"github.com/kanehiroyuu/datadog-tour/internal/presentation/middleware"
 )
 
 var logger *logrus.Logger
@@ -119,23 +117,12 @@ func main() {
 
 	// Setup repositories and router
 	repoLocator := SetupRepositories(db, redisClient, logger)
-	appRouter := SetupRouter()
+	e := SetupRouter(logger, repoLocator)
 
-	// Setup CORS
-	corsHandler := middleware.NewCORSHandler()
-
-	// Apply middlewares (order matters: first applied = outermost)
-	// Note: Recovery middleware is now inside the router to have access to tracing span
-	loggerMiddleware := middleware.LoggerMiddleware(logger)
-	repoLocatorMiddleware := middleware.RepoLocatorMiddleware(repoLocator)
-
-	// Chain: Logger -> RepoLocator -> Router (with Recovery inside)
-	appRouterWithMiddleware := loggerMiddleware(repoLocatorMiddleware(appRouter))
-
-	// Start server
+	// Start Echo server
 	port := "8080"
 	logger.WithField("port", port).Info("Starting server")
-	if err := http.ListenAndServe(":"+port, corsHandler.Handler(appRouterWithMiddleware)); err != nil {
+	if err := e.Start(":" + port); err != nil && err != http.ErrServerClosed {
 		logger.WithError(err).Fatal("Server failed to start")
 	}
 }

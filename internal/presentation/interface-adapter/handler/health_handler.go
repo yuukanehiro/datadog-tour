@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
+	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
-	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -18,19 +18,22 @@ func NewHealthHandler() *HealthHandler {
 }
 
 // HealthCheck handles GET /health
-func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.health_check")
+func (h *HealthHandler) HealthCheck(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.health_check")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
-	span.SetTag("http.user_agent", r.UserAgent())
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
+	span.SetTag("http.user_agent", c.Request().UserAgent())
 	span.SetTag("health.status", "healthy")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Health check endpoint called", nil)
 
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, nil, "Service is healthy")
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "Service is healthy",
+	})
 }

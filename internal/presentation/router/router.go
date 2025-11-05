@@ -1,42 +1,64 @@
 package router
 
 import (
-	"net/http"
 	"os"
 
-	gorillatrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"github.com/sirupsen/logrus"
+	echotrace "github.com/DataDog/dd-trace-go/contrib/labstack/echo.v4/v2"
 
+	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/handler"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/middleware"
 )
 
 // Setup configures all routes with Datadog tracing
-func Setup(userHandler *handler.UserHandler, healthHandler *handler.HealthHandler, testHandler *handler.TestHandler) *gorillatrace.Router {
-	// Setup router with tracing
+func Setup(userHandler *handler.UserHandler, healthHandler *handler.HealthHandler, testHandler *handler.TestHandler, logger interface{}, repoLocator interface{}) *echo.Echo {
+	// Setup Echo with Datadog tracing
 	// ここでspanが作成され、以降のハンドラやミドルウェアで利用可能に
-	router := gorillatrace.NewRouter(gorillatrace.WithServiceName(os.Getenv("DD_SERVICE")))
+	e := echo.New()
 
-	// Apply recovery middleware INSIDE the router so span is available
-	router.Use(func(next http.Handler) http.Handler {
-		return middleware.RecoveryMiddleware()(next)
-	})
+	// Disable Echo's default logger since we use our own
+	e.HideBanner = true
+	e.HidePort = true
+
+	// Apply middlewares in order
+	// 1. Logger middleware - sets logger in context
+	if logger != nil {
+		e.Use(middleware.EchoLoggerMiddleware(logger.(*logrus.Logger)))
+	}
+
+	// 2. RepoLocator middleware - sets repository locator in context
+	if repoLocator != nil {
+		e.Use(middleware.EchoRepoLocatorMiddleware(repoLocator.(*appcontext.RepoLocator)))
+	}
+
+	// 3. Datadog tracing middleware
+	e.Use(echotrace.Middleware(echotrace.WithService(os.Getenv("DD_SERVICE"))))
+
+	// 4. Recovery middleware AFTER tracing so span is available
+	e.Use(middleware.EchoRecoveryMiddleware())
+
+	// 5. CORS middleware (Echo built-in)
+	e.Use(echomiddleware.CORS())
 
 	// Health endpoints
-	router.HandleFunc("/", healthHandler.HealthCheck).Methods("GET")
-	router.HandleFunc("/health", healthHandler.HealthCheck).Methods("GET")
+	e.GET("/", healthHandler.HealthCheck)
+	e.GET("/health", healthHandler.HealthCheck)
 
 	// User endpoints
-	router.HandleFunc("/api/users", userHandler.CreateUser).Methods("POST")
-	router.HandleFunc("/api/users", userHandler.GetAllUsers).Methods("GET")
-	router.HandleFunc("/api/users/{id}", userHandler.GetUser).Methods("GET")
+	e.POST("/api/users", userHandler.CreateUser)
+	e.GET("/api/users", userHandler.GetAllUsers)
+	e.GET("/api/users/:id", userHandler.GetUser)
 
 	// Test endpoints for Datadog demonstration
-	router.HandleFunc("/api/slow", testHandler.SlowEndpoint).Methods("GET")
-	router.HandleFunc("/api/error", testHandler.ErrorEndpoint).Methods("GET")
-	router.HandleFunc("/api/expected-error", testHandler.ExpectedErrorEndpoint).Methods("GET")
-	router.HandleFunc("/api/unexpected-error", testHandler.UnexpectedErrorEndpoint).Methods("GET")
-	router.HandleFunc("/api/warn", testHandler.WarnEndpoint).Methods("GET")
-	router.HandleFunc("/api/panic", testHandler.PanicEndpoint).Methods("GET")
+	e.GET("/api/slow", testHandler.SlowEndpoint)
+	e.GET("/api/error", testHandler.ErrorEndpoint)
+	e.GET("/api/expected-error", testHandler.ExpectedErrorEndpoint)
+	e.GET("/api/unexpected-error", testHandler.UnexpectedErrorEndpoint)
+	e.GET("/api/warn", testHandler.WarnEndpoint)
+	e.GET("/api/panic", testHandler.PanicEndpoint)
 
-	return router
+	return e
 }

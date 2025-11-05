@@ -1,18 +1,18 @@
 package middleware
 
 import (
-	"net/http"
-
+	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/sirupsen/logrus"
 )
 
-// LoggerMiddleware sets logger in context
-func LoggerMiddleware(logger *logrus.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := appcontext.SetLogger(r.Context(), logger)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+// EchoLoggerMiddleware sets logger in context for Echo
+func EchoLoggerMiddleware(logger *logrus.Logger) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := appcontext.SetLogger(c.Request().Context(), logger)
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
 	}
 }

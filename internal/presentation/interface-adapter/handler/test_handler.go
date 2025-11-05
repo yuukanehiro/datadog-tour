@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
@@ -21,15 +22,15 @@ func NewTestHandler() *TestHandler {
 }
 
 // SlowEndpoint handles GET /api/slow - demonstrates slow requests
-func (h *TestHandler) SlowEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.slow_endpoint")
+func (h *TestHandler) SlowEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.slow_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "slow_request")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Slow endpoint called - simulating 2 second delay", nil)
@@ -40,22 +41,26 @@ func (h *TestHandler) SlowEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	logging.LogWithTrace(ctx, logger, "handler", "Slow operation completed", nil)
 
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
-		"message": "This endpoint intentionally took 2 seconds to respond",
-		"delay":   "2s",
-	}, "Slow request completed successfully")
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]any{
+			"message": "This endpoint intentionally took 2 seconds to respond",
+			"delay":   "2s",
+		},
+		"message": "Slow request completed successfully",
+	})
 }
 
 // ErrorEndpoint handles GET /api/error - demonstrates error tracing
-func (h *TestHandler) ErrorEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.error_endpoint")
+func (h *TestHandler) ErrorEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.error_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "error_simulation")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Error endpoint called - will generate an error", nil)
@@ -73,24 +78,24 @@ func (h *TestHandler) ErrorEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	problem := response.NewInternalErrorProblem(
 		"Simulated database connection error for Datadog demonstration",
-		r.URL.Path,
+		c.Request().URL.Path,
 		true,
 	)
 	problem.Extra["error.stack"] = "user_repository.go:42"
 	problem.Extra["db.operation"] = "connection_test"
-	response.RespondProblemWithTrace(ctx, w, problem)
+	return c.JSON(problem.Status, problem)
 }
 
 // ExpectedErrorEndpoint handles GET /api/expected-error - demonstrates expected error (no alert)
-func (h *TestHandler) ExpectedErrorEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.expected_error_endpoint")
+func (h *TestHandler) ExpectedErrorEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.expected_error_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "expected_error_simulation")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Expected error endpoint called", nil)
@@ -106,23 +111,23 @@ func (h *TestHandler) ExpectedErrorEndpoint(w http.ResponseWriter, r *http.Reque
 
 	problem := response.NewConflictProblem(
 		"User with email 'duplicate@example.com' already exists. This is an expected error that should not trigger alerts.",
-		r.URL.Path,
+		c.Request().URL.Path,
 	)
 	problem.Extra["user.email"] = "duplicate@example.com"
 	problem.Extra["validation.field"] = "email"
-	response.RespondProblemWithTrace(ctx, w, problem)
+	return c.JSON(problem.Status, problem)
 }
 
 // UnexpectedErrorEndpoint handles GET /api/unexpected-error - demonstrates unexpected error (should alert)
-func (h *TestHandler) UnexpectedErrorEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.unexpected_error_endpoint")
+func (h *TestHandler) UnexpectedErrorEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.unexpected_error_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "unexpected_error_simulation")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Unexpected error endpoint called", nil)
@@ -138,25 +143,25 @@ func (h *TestHandler) UnexpectedErrorEndpoint(w http.ResponseWriter, r *http.Req
 
 	problem := response.NewInternalErrorProblem(
 		"Database connection to mysql.example.com was lost unexpectedly. This system error should trigger an alert for immediate investigation.",
-		r.URL.Path,
+		c.Request().URL.Path,
 		true,
 	)
 	problem.Extra["db.host"] = "mysql.example.com"
 	problem.Extra["db.port"] = 3306
 	problem.Extra["retry.attempted"] = false
-	response.RespondProblemWithTrace(ctx, w, problem)
+	return c.JSON(problem.Status, problem)
 }
 
 // WarnEndpoint handles GET /api/warn - demonstrates warning logs
-func (h *TestHandler) WarnEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.warn_endpoint")
+func (h *TestHandler) WarnEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.warn_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "warning_simulation")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Warn endpoint called", nil)
@@ -168,24 +173,28 @@ func (h *TestHandler) WarnEndpoint(w http.ResponseWriter, r *http.Request) {
 		"threshold_ms":     1000,
 	})
 
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
-		"message": "Warning logged successfully",
-		"level":   "warn",
-		"type":    "performance_degradation",
-	}, "Warning endpoint completed")
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]any{
+			"message": "Warning logged successfully",
+			"level":   "warn",
+			"type":    "performance_degradation",
+		},
+		"message": "Warning endpoint completed",
+	})
 }
 
 // PanicEndpoint handles GET /api/panic - demonstrates panic recovery and trace logging
-func (h *TestHandler) PanicEndpoint(w http.ResponseWriter, r *http.Request) {
-	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.panic_endpoint")
+func (h *TestHandler) PanicEndpoint(c echo.Context) error {
+	span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "handler.panic_endpoint")
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
 	repoLocator := appcontext.GetRepoLocator(ctx)
 
 	// Add request metadata to span
-	span.SetTag("http.method", r.Method)
-	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("http.method", c.Request().Method)
+	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("test.type", "panic_simulation")
 
 	logging.LogWithTrace(ctx, logger, "handler", "Panic endpoint called - will trigger panic in repository layer", nil)
@@ -206,16 +215,19 @@ func (h *TestHandler) PanicEndpoint(w http.ResponseWriter, r *http.Request) {
 		span.SetTag("error.msg", err.Error())
 		problem := response.NewInternalErrorProblem(
 			"Test panic failed",
-			r.URL.Path,
+			c.Request().URL.Path,
 			true,
 		)
 		problem.Extra["error"] = err.Error()
-		response.RespondProblemWithTrace(ctx, w, problem)
-		return
+		return c.JSON(problem.Status, problem)
 	}
 
 	// This line should never be reached due to panic
-	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
-		"message": "This should never be returned",
-	}, "Panic test completed")
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"data": map[string]any{
+			"message": "This should never be returned",
+		},
+		"message": "Panic test completed",
+	})
 }

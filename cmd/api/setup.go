@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 
+	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/tracing"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/handler"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/router"
-	gorillatrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 )
 
 // SetupRepositories creates and configures all repositories
@@ -30,12 +30,12 @@ func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *lo
 }
 
 // SetupRouter creates and configures the application router with all handlers
-func SetupRouter() *gorillatrace.Router {
+func SetupRouter(logger *logrus.Logger, repoLocator *appcontext.RepoLocator) *echo.Echo {
 	// Setup handlers
 	healthHandler := handler.NewHealthHandler()
 	userHandler := handler.NewUserHandler()
 	testHandler := handler.NewTestHandler()
 
 	// Setup router with tracing
-	return router.Setup(userHandler, healthHandler, testHandler)
+	return router.Setup(userHandler, healthHandler, testHandler, logger, repoLocator)
 }

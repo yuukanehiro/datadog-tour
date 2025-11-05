@@ -1,17 +1,17 @@
 package middleware
 
 import (
-	"net/http"
-
+	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 )
 
-// RepoLocatorMiddleware sets repository locator in context
-func RepoLocatorMiddleware(locator *appcontext.RepoLocator) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := appcontext.SetRepoLocator(r.Context(), locator)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+// EchoRepoLocatorMiddleware sets repository locator in context for Echo
+func EchoRepoLocatorMiddleware(locator *appcontext.RepoLocator) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx := appcontext.SetRepoLocator(c.Request().Context(), locator)
+			c.SetRequest(c.Request().WithContext(ctx))
+			return next(c)
+		}
 	}
 }
