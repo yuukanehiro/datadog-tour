@@ -12,6 +12,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *entities.User) error
 	FindByID(ctx context.Context, id int) (*entities.User, error)
 	FindAll(ctx context.Context) ([]*entities.User, error)
+	TestPanic(ctx context.Context) error // For testing panic recovery
 }
 
 // CacheRepository is a port for cache repository

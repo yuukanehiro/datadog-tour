@@ -177,3 +177,27 @@ func (uc *UserUseCase) GetAllUsers(ctx context.Context) ([]*entities.User, error
 
 	return users, nil
 }
+
+// TestPanic triggers a panic in repository layer for testing recovery middleware
+func (uc *UserUseCase) TestPanic(ctx context.Context) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "usecase.test_panic")
+	defer span.Finish()
+
+	logger := appcontext.GetLogger(ctx)
+
+	span.SetTag("test.type", "panic_recovery")
+
+	logging.LogWithTrace(ctx, logger, "usecase", "Test panic called - will trigger repository panic", nil)
+
+	// Call repository method that will panic
+	err := uc.RUser.TestPanic(ctx)
+	if err != nil {
+		span.SetTag("error", true)
+		span.SetTag("error.msg", err.Error())
+		logging.LogErrorWithTrace(ctx, logger, "usecase", "Repository returned error", err, nil)
+		return fmt.Errorf("test panic failed: %w", err)
+	}
+
+	// This line should never be reached due to panic
+	return nil
+}

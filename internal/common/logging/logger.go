@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,10 +27,14 @@ func prepareLogFields(ctx context.Context, layer string, fields logrus.Fields, s
 	}
 
 	// Extract trace information from context
-	if span, ok := tracer.SpanFromContext(ctx); ok {
-		spanContext := span.Context()
-		fields["dd.trace_id"] = spanContext.TraceID()
-		fields["dd.span_id"] = spanContext.SpanID()
+	// Convert to string format for Datadog log-trace correlation
+	// Only extract if not already present (e.g., manually set in panic recovery)
+	if _, hasTraceID := fields["dd.trace_id"]; !hasTraceID {
+		if span, ok := tracer.SpanFromContext(ctx); ok {
+			spanContext := span.Context()
+			fields["dd.trace_id"] = strconv.FormatUint(spanContext.TraceID(), 10)
+			fields["dd.span_id"] = strconv.FormatUint(spanContext.SpanID(), 10)
+		}
 	}
 
 	fields["layer"] = layer
@@ -163,10 +168,11 @@ func LogSQL(ctx context.Context, logger logrus.FieldLogger, query string, args [
 	}
 
 	// Add trace information
+	// Convert to string format for Datadog log-trace correlation
 	if span, ok := tracer.SpanFromContext(ctx); ok {
 		spanContext := span.Context()
-		fields["dd.trace_id"] = spanContext.TraceID()
-		fields["dd.span_id"] = spanContext.SpanID()
+		fields["dd.trace_id"] = strconv.FormatUint(spanContext.TraceID(), 10)
+		fields["dd.span_id"] = strconv.FormatUint(spanContext.SpanID(), 10)
 	}
 
 	if err != nil {

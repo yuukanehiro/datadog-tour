@@ -124,10 +124,12 @@ func main() {
 	// Setup CORS
 	corsHandler := middleware.NewCORSHandler()
 
-	// Apply middlewares
+	// Apply middlewares (order matters: first applied = outermost)
+	// Note: Recovery middleware is now inside the router to have access to tracing span
 	loggerMiddleware := middleware.LoggerMiddleware(logger)
 	repoLocatorMiddleware := middleware.RepoLocatorMiddleware(repoLocator)
 
+	// Chain: Logger -> RepoLocator -> Router (with Recovery inside)
 	appRouterWithMiddleware := loggerMiddleware(repoLocatorMiddleware(appRouter))
 
 	// Start server

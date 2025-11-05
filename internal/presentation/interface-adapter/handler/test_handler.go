@@ -8,6 +8,7 @@ import (
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
+	"github.com/kanehiroyuu/datadog-tour/internal/usecase"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -172,4 +173,49 @@ func (h *TestHandler) WarnEndpoint(w http.ResponseWriter, r *http.Request) {
 		"level":   "warn",
 		"type":    "performance_degradation",
 	}, "Warning endpoint completed")
+}
+
+// PanicEndpoint handles GET /api/panic - demonstrates panic recovery and trace logging
+func (h *TestHandler) PanicEndpoint(w http.ResponseWriter, r *http.Request) {
+	span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.panic_endpoint")
+	defer span.Finish()
+
+	logger := appcontext.GetLogger(ctx)
+	repoLocator := appcontext.GetRepoLocator(ctx)
+
+	// Add request metadata to span
+	span.SetTag("http.method", r.Method)
+	span.SetTag("http.url", r.URL.Path)
+	span.SetTag("test.type", "panic_simulation")
+
+	logging.LogWithTrace(ctx, logger, "handler", "Panic endpoint called - will trigger panic in repository layer", nil)
+
+	// Create usecase interactor
+	interactor := &usecase.UserUseCase{
+		Logger: logger,
+		RUser:  repoLocator.UserRepo,
+		RCache: repoLocator.CacheRepo,
+	}
+
+	// Call usecase method that will trigger panic in repository
+	// This panic should be caught by RecoveryMiddleware and logged with trace information
+	err := interactor.TestPanic(ctx)
+	if err != nil {
+		logging.LogErrorWithTrace(ctx, logger, "handler", "Test panic returned error", err, nil)
+		span.SetTag("error", true)
+		span.SetTag("error.msg", err.Error())
+		problem := response.NewInternalErrorProblem(
+			"Test panic failed",
+			r.URL.Path,
+			true,
+		)
+		problem.Extra["error"] = err.Error()
+		response.RespondProblemWithTrace(ctx, w, problem)
+		return
+	}
+
+	// This line should never be reached due to panic
+	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
+		"message": "This should never be returned",
+	}, "Panic test completed")
 }

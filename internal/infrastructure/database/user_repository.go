@@ -97,3 +97,21 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*entities.User, error) 
 
 	return users, nil
 }
+
+// TestPanic deliberately triggers a panic to test recovery middleware
+// This method is for testing purposes only
+func (r *UserRepository) TestPanic(ctx context.Context) error {
+	span, ctx := tracer.StartSpanFromContext(ctx, "mysql.test_panic")
+	defer span.Finish()
+
+	// Execute a real query first to demonstrate SQL logging before panic
+	query := "SELECT COUNT(*) FROM users"
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to count users: %w", err)
+	}
+
+	// Deliberately trigger a panic
+	panic("Deliberate panic in repository layer for testing recovery middleware")
+}
