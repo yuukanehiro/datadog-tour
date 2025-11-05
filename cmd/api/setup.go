@@ -7,10 +7,10 @@ import (
 	"github.com/sirupsen/logrus"
 
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
-	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/mysql"
+	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/database"
 	infraredis "github.com/kanehiroyuu/datadog-tour/internal/infrastructure/redis"
 	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/tracing"
-	"github.com/kanehiroyuu/datadog-tour/internal/presentation/handler"
+	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/handler"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/router"
 	gorillatrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 )
@@ -18,7 +18,7 @@ import (
 // SetupRepositories creates and configures all repositories
 func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *logrus.Logger) *appcontext.RepoLocator {
 	// Setup repositories
-	userRepo := mysql.NewUserRepository(db, logger)
+	userRepo := database.NewUserRepository(db, logger)
 	cacheRepoBase := infraredis.NewCacheRepository(redisClient)
 	cacheRepo := tracing.NewCacheRepositoryTracer(cacheRepoBase, cacheRepoBase.GetTTL())
 

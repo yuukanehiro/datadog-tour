@@ -2,11 +2,13 @@
 
 ## 目次
 1. [TraceとSpanとは](#traceとspanとは)
-2. [実装方法（Go）](#実装方法go)
-3. [ログとの統合](#ログとの統合)
-4. [Datadogでの確認方法](#datadogでの確認方法)
-5. [ベストプラクティス](#ベストプラクティス)
-6. [トラブルシューティング](#トラブルシューティング)
+2. [TraceIDとSpanIDの違いと使い分け](#traceidとspanidの違いと使い分け)
+3. [実装方法（Go）](#実装方法go)
+4. [ログとの統合](#ログとの統合)
+5. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
+6. [Datadogでの確認方法](#datadogでの確認方法)
+7. [ベストプラクティス](#ベストプラクティス)
+8. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -76,6 +78,195 @@ Trace ID: 1234567890 (1つのリクエスト全体)
 | **Duration** | 処理時間 | `200ms` |
 | **Start Time** | 開始時刻 | `2025-11-03T01:00:00Z` |
 | **Tags** | メタデータ | `user.id=123, error=true` |
+
+---
+
+## TraceIDとSpanIDの違いと使い分け
+
+### TraceID vs SpanID: 対比表
+
+| 項目 | TraceID | SpanID |
+|------|---------|--------|
+| **識別対象** | リクエスト全体 | 個々の処理単位 |
+| **スコープ** | 1つのTraceに1つのID | 1つのTraceに複数のID |
+| **共有範囲** | すべてのSpanで同じ | 各Spanで異なる |
+| **用途** | リクエスト全体の追跡 | 特定の処理の追跡 |
+| **ログでの使い方** | リクエストに関連する全ログを検索 | 特定の処理に関連するログを検索 |
+| **エラー追跡** | どのリクエストでエラーが発生したか | どの処理でエラーが発生したか |
+
+### 具体例：GET /api/users/1 のリクエスト
+
+```
+リクエスト: GET /api/users/1
+↓
+Trace ID: 12345678 ← このリクエスト全体を識別
+├─ Span ID: 100 (handler.get_user)          ← HTTPハンドラー
+│  ├─ Span ID: 101 (usecase.get_user)       ← ビジネスロジック
+│  │  ├─ Span ID: 102 (cache.get)           ← キャッシュ確認
+│  │  └─ Span ID: 103 (mysql.query)         ← DB問い合わせ (ここでエラー)
+│  └─ Span ID: 104 (response.format)        ← レスポンス整形
+```
+
+この例では:
+- **Trace ID = 12345678**: リクエスト全体で同じ値
+- **Span ID**: 各処理ごとに異なる値 (100, 101, 102, 103, 104)
+
+### ユースケース1: エラーが発生した場合
+
+```json
+{
+  "level": "error",
+  "message": "[repository] Database query failed",
+  "dd.trace_id": "12345678",
+  "dd.span_id": "103",
+  "error.notify": true,
+  "db.query": "SELECT * FROM users WHERE id = ?"
+}
+```
+
+**このログから分かること**:
+- **dd.trace_id: 12345678** → **どのリクエスト**でエラーが発生したか
+- **dd.span_id: 103** → そのリクエストの中の**どの処理（mysql.query）**でエラーが発生したか
+
+### ユースケース2: Datadog Logs Explorerでの検索
+
+#### TraceIDでの検索
+```
+dd.trace_id:12345678
+```
+
+**結果**: このリクエストに関連する**すべてのログ**が時系列で表示
+```
+[handler] GET /api/users/1 started          | dd.span_id: 100
+[usecase] Retrieving user from cache       | dd.span_id: 101
+[cache] Cache miss for user:1              | dd.span_id: 102
+[repository] Querying database             | dd.span_id: 103
+[repository] Database query failed         | dd.span_id: 103 (ERROR)
+[handler] Request failed with 500          | dd.span_id: 100 (ERROR)
+```
+
+#### SpanIDでの検索
+```
+dd.trace_id:12345678 AND dd.span_id:103
+```
+
+**結果**: **特定の処理（mysql.query）に関連するログのみ**表示
+```
+[repository] Querying database             | dd.span_id: 103
+[repository] Database query failed         | dd.span_id: 103 (ERROR)
+```
+
+### ユースケース3: RFC 9457エラーレスポンスでの利用
+
+このプロジェクトでは、エラーレスポンスに両方のIDを含めています。
+
+**エラーレスポンス例**:
+```json
+{
+  "type": "https://datadog-tour.example.com/errors/internal",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "Database connection lost unexpectedly",
+  "instance": "/api/users/1",
+  "trace_id": "12345678",
+  "span_id": "103",
+  "notify": true,
+  "db.host": "mysql.example.com"
+}
+```
+
+**クライアント側での利用**:
+```javascript
+// エラーレスポンスを取得
+const response = await fetch('/api/users/1');
+if (!response.ok) {
+  const error = await response.json();
+
+  // サポートに問い合わせる際に両方のIDを伝える
+  console.error('Error occurred:', {
+    trace_id: error.trace_id,    // → リクエスト全体を特定
+    span_id: error.span_id,      // → 具体的なエラー箇所を特定
+    message: error.detail
+  });
+
+  // Datadogで検索: dd.trace_id:12345678
+}
+```
+
+### ユースケース4: Datadog APM Traces画面での確認
+
+**APM Traces画面**:
+```
+Trace ID: 12345678                           ← クリックするとFlame Graph表示
+  Duration: 250ms
+  Status: Error
+
+  ├─ handler.get_user (Span ID: 100)        ← 各Spanをクリックで詳細表示
+  │  Duration: 245ms
+  │  Status: Error
+  │
+  ├──├─ usecase.get_user (Span ID: 101)
+  │  │  Duration: 200ms
+  │  │
+  │  ├──├─ cache.get (Span ID: 102)
+  │  │  │  Duration: 10ms
+  │  │  │  Cache miss
+  │  │  │
+  │  │  └─ mysql.query (Span ID: 103)
+  │  │     Duration: 180ms
+  │  │     Status: Error ← ここでエラー発生
+  │  │     Error: connection timeout
+```
+
+**Span ID: 103をクリックすると**:
+- このSpanの詳細情報（Duration, Tags, Error）
+- このSpanに紐づくログ（dd.span_id:103で自動検索）
+- スタックトレース（設定している場合）
+
+### コード内での取得方法
+
+```go
+// internal/presentation/interface-adapter/response/response.go
+
+func RespondProblemWithTrace(ctx context.Context, w http.ResponseWriter, problem ProblemDetail) {
+    // Contextからtrace情報を取得
+    span, ok := tracer.SpanFromContext(ctx)
+    if ok {
+        spanContext := span.Context()
+
+        // TraceID: リクエスト全体を識別
+        traceID := spanContext.TraceID()
+
+        // SpanID: 現在の処理（この関数が呼ばれた場所）を識別
+        spanID := spanContext.SpanID()
+
+        // エラーレスポンスに両方を含める
+        problem.TraceID = fmt.Sprintf("%d", traceID)
+        problem.SpanID = fmt.Sprintf("%d", spanID)
+
+        // レスポンスヘッダーにも追加
+        w.Header().Set("X-Datadog-Trace-Id", fmt.Sprintf("%d", traceID))
+        w.Header().Set("X-Datadog-Span-Id", fmt.Sprintf("%d", spanID))
+    }
+
+    // エラーレスポンス送信
+    w.Header().Set("Content-Type", "application/problem+json")
+    w.WriteHeader(problem.Status)
+    json.NewEncoder(w).Encode(problem)
+}
+```
+
+### まとめ: いつ何を使うか
+
+| シーン | 使用するID | 目的 |
+|------|-----------|------|
+| リクエスト全体の流れを確認 | **TraceID** | すべてのログを時系列で表示 |
+| 特定の処理のログを確認 | **SpanID** | その処理に関連するログのみ表示 |
+| エラーの発生箇所を特定 | **両方** | リクエスト全体と具体的な処理を特定 |
+| クライアントからのエラー報告 | **TraceID** | サポートチームがリクエスト全体を追跡 |
+| パフォーマンスボトルネックの特定 | **SpanID** | 遅い処理を特定して最適化 |
+| ログからTraceへ移動 | **TraceID** | ログ詳細画面で「View Trace」をクリック |
+| TraceからSpanのログへ移動 | **SpanID** | Span詳細画面で「View Logs」をクリック |
 
 ---
 
@@ -363,6 +554,185 @@ func RespondJSONWithTrace(ctx context.Context, w http.ResponseWriter, status int
     json.NewEncoder(w).Encode(data)
 }
 ```
+
+---
+
+## Log Explorer Fields & Attributesの設定
+
+Datadog Log Explorerに表示される **Fields & Attributes**（`error`, `file`, `layer`, `level`, `line` など）は、以下の3つの場所で設定されています。
+
+### 1. アプリケーションコードで設定
+
+**場所**: `internal/common/logging/logger.go`
+
+ログ出力時に自動的に追加されるフィールドです。
+
+```go
+// internal/common/logging/logger.go
+package logging
+
+import (
+    "context"
+    "fmt"
+    "runtime"
+    "github.com/sirupsen/logrus"
+    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+)
+
+func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, err error, fields logrus.Fields) {
+    if fields == nil {
+        fields = logrus.Fields{}
+    }
+
+    // 呼び出し元の情報を自動取得（runtime.Caller）
+    _, file, line, ok := runtime.Caller(2)
+    if ok {
+        fields["file"] = file  // ← ファイルパス
+        fields["line"] = line  // ← 行番号
+    }
+
+    // Contextからtrace情報を取得
+    if span, ok := tracer.SpanFromContext(ctx); ok {
+        spanContext := span.Context()
+        fields["dd.trace_id"] = spanContext.TraceID()  // ← Trace ID
+        fields["dd.span_id"] = spanContext.SpanID()    // ← Span ID
+    }
+
+    fields["layer"] = layer  // ← "handler", "usecase", "repository"など
+
+    // エラーオブジェクトから自動的に "error" フィールドが追加される
+    logger.WithFields(fields).WithError(err).Error(formattedMessage)
+    //                         ^^^^^^^^^^^^^^
+    //                         これにより "error" フィールドが追加される
+}
+```
+
+**自動的に追加されるフィールド:**
+
+| フィールド名 | 取得元 | 説明 | 例 |
+|------------|--------|------|-----|
+| **file** | `runtime.Caller(2)` | 呼び出し元のファイルパス | `/usr/local/go/src/net/http/server.go` |
+| **line** | `runtime.Caller(2)` | 呼び出し元の行番号 | `2141` |
+| **layer** | 引数で指定 | アーキテクチャ層 | `handler`, `usecase`, `repository` |
+| **dd.trace_id** | `tracer.SpanFromContext(ctx)` | Datadog Trace ID | `2532593448861146015` |
+| **dd.span_id** | `tracer.SpanFromContext(ctx)` | Datadog Span ID | `3920137683431479689` |
+| **error** | `WithError(err)` | エラーメッセージ | `simulated database connection error` |
+
+**使用例:**
+
+```go
+// internal/presentation/handler/test_handler.go
+func (h *TestHandler) ErrorEndpoint(w http.ResponseWriter, r *http.Request) {
+    span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.error_endpoint")
+    defer span.Finish()
+
+    logger := appcontext.GetLogger(ctx)
+    err := errors.New("simulated database connection error")
+
+    // この呼び出しで上記のフィールドが全て自動設定される
+    logging.LogErrorWithTrace(ctx, logger, "handler", "Simulated error occurred", err, nil)
+}
+```
+
+### 2. Logrusライブラリが自動設定
+
+**場所**: `cmd/api/main.go`
+
+```go
+// cmd/api/main.go
+func init() {
+    logger = logrus.New()
+    logger.SetFormatter(&logrus.JSONFormatter{})  // ← JSON形式で出力
+    logger.SetOutput(os.Stdout)
+    logger.SetLevel(logrus.InfoLevel)
+}
+```
+
+**Logrusが自動的に追加するフィールド:**
+
+| フィールド名 | 説明 | 例 |
+|------------|------|-----|
+| **level** | ログレベル | `error`, `info`, `warn`, `debug` |
+| **time** | タイムスタンプ | `2025-11-05T06:10:49Z` |
+| **msg** | ログメッセージ | `[handler] Simulated error occurred` |
+
+### 3. Datadog Agentが自動解析
+
+**場所**: `docker/docker-compose.yml`
+
+```yaml
+# docker/docker-compose.yml
+services:
+  api:
+    container_name: datadog-api
+    environment:
+      - DD_ENV=development
+      - DD_SERVICE=datadog-tour-api
+      - DD_VERSION=1.0.0
+    labels:
+      # Datadog Agentがログを収集する際の設定
+      com.datadoghq.ad.logs: '[{"source": "golang", "service": "datadog-tour-api"}]'
+```
+
+**Datadog Agentが自動的に追加するフィールド:**
+
+| フィールド名 | 取得元 | 説明 | 例 |
+|------------|--------|------|-----|
+| **service** | `DD_SERVICE`環境変数 または labels | サービス名 | `datadog-tour-api` |
+| **source** | labels | ログのソース言語 | `golang` |
+| **host** | `DD_HOSTNAME`環境変数 | ホスト名 | `datadog-tour-local` |
+| **container_name** | Dockerコンテナ名 | コンテナ名 | `datadog-api` |
+| **env** | `DD_ENV`環境変数 | 環境名 | `development` |
+
+### カスタムフィールドの追加方法
+
+独自のフィールドを追加したい場合は、`fields`引数に`logrus.Fields`を渡します。
+
+```go
+// カスタムフィールドを追加
+logging.LogErrorWithTrace(ctx, logger, "handler", "User creation failed", err, logrus.Fields{
+    "user_id": 123,               // カスタム: ユーザーID
+    "request_id": "abc-123",      // カスタム: リクエストID
+    "client_ip": "192.168.1.1",   // カスタム: クライアントIP
+    "user_agent": "Mozilla/5.0",  // カスタム: ユーザーエージェント
+})
+```
+
+**出力されるJSON:**
+
+```json
+{
+  "dd.trace_id": 2532593448861146015,
+  "dd.span_id": 3920137683431479689,
+  "file": "/app/internal/presentation/handler/user_handler.go",
+  "line": 42,
+  "layer": "handler",
+  "level": "error",
+  "time": "2025-11-05T06:10:49Z",
+  "msg": "[handler] User creation failed",
+  "error": "database connection timeout",
+  "user_id": 123,
+  "request_id": "abc-123",
+  "client_ip": "192.168.1.1",
+  "user_agent": "Mozilla/5.0",
+  "service": "datadog-tour-api",
+  "source": "golang",
+  "host": "datadog-tour-local"
+}
+```
+
+これら全てのフィールドがDatadog Log Explorerの **Fields & Attributes** タブに表示され、フィルタリングや検索に使用できます。
+
+### Fields & Attributesの表示確認
+
+**Log Explorerでの確認手順:**
+
+1. Datadog → Logs → Log Explorer
+2. ログ行をクリックして詳細を表示
+3. **Fields & Attributes** タブをクリック
+4. 上記のフィールドが全て表示されることを確認
+
+![Log Explorer Fields & Attributes](./logs_trace_1.png)
 
 ---
 

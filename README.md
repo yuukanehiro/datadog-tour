@@ -112,8 +112,17 @@ GET /api/users/{id}
 # 遅いエンドポイント (2秒待機)
 GET /api/slow
 
-# エラーエンドポイント
+# エラーエンドポイント（旧）
 GET /api/error
+
+# 想定内エラー (error.notify: false - アラート対象外)
+GET /api/expected-error
+
+# システムエラー (error.notify: true - アラート対象)
+GET /api/unexpected-error
+
+# 警告ログ
+GET /api/warn
 ```
 
 ## Datadog で確認できる内容

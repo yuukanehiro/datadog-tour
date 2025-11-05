@@ -64,7 +64,7 @@
         <p class="text-muted">
           These endpoints are for demonstrating Datadog APM features. Check traces in Datadog after calling them.
         </p>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
           <button @click="testSlowEndpoint" class="btn btn-outline-warning" :disabled="testingSlowEndpoint">
             <span v-if="testingSlowEndpoint">Testing...</span>
             <span v-else>Test Slow Endpoint (2s delay)</span>
@@ -73,6 +73,9 @@
             <span v-if="testingErrorEndpoint">Testing...</span>
             <span v-else>Test Error Endpoint</span>
           </button>
+          <NuxtLink to="/test" class="btn btn-success">
+            Go to Full API Test Page →
+          </NuxtLink>
         </div>
         <div v-if="testSlowMessage" class="alert alert-info mt-3" role="alert">
           {{ testSlowMessage }}

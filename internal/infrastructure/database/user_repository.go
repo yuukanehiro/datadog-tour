@@ -1,4 +1,4 @@
-package mysql
+package database
 
 import (
 	"context"
@@ -34,9 +34,9 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 	query := "INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)"
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: name=%s, email=%s, created_at=%v]", query, user.Name, user.Email, user.CreatedAt), logrus.Fields{
-		"query": query,
-		"user.name": user.Name,
-		"user.email": user.Email,
+		"query":           query,
+		"user.name":       user.Name,
+		"user.email":      user.Email,
 		"user.created_at": user.CreatedAt,
 	})
 
@@ -45,9 +45,9 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 	duration := time.Since(startTime)
 	if err != nil {
 		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [params: name=%s, email=%s] [duration: %v]", query, user.Name, user.Email, duration), err, logrus.Fields{
-			"query": query,
-			"user.name": user.Name,
-			"user.email": user.Email,
+			"query":           query,
+			"user.name":       user.Name,
+			"user.email":      user.Email,
 			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return fmt.Errorf("failed to insert user: %w", err)
@@ -62,7 +62,7 @@ func (r *UserRepository) Create(ctx context.Context, user *entities.User) error 
 	user.ID = int(id)
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL result: User created with ID=%d [duration: %v]", user.ID, duration), logrus.Fields{
-		"user.id": user.ID,
+		"user.id":         user.ID,
 		"sql.duration_ms": duration.Milliseconds(),
 	})
 
@@ -77,7 +77,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*entities.User, 
 	query := "SELECT id, name, email, created_at FROM users WHERE id = ?"
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL: %s [params: id=%d]", query, id), logrus.Fields{
-		"query": query,
+		"query":   query,
 		"user.id": id,
 	})
 
@@ -94,7 +94,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*entities.User, 
 
 	if err == sql.ErrNoRows {
 		r.logWithTrace(ctx, fmt.Sprintf("SQL result: User not found (id=%d) [duration: %v]", id, duration), logrus.Fields{
-			"user.id": id,
+			"user.id":         id,
 			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("user not found")
@@ -102,16 +102,16 @@ func (r *UserRepository) FindByID(ctx context.Context, id int) (*entities.User, 
 
 	if err != nil {
 		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [params: id=%d] [duration: %v]", query, id, duration), err, logrus.Fields{
-			"query": query,
-			"user.id": id,
+			"query":           query,
+			"user.id":         id,
 			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL result: Found user ID=%d, name=%s [duration: %v]", user.ID, user.Name, duration), logrus.Fields{
-		"user.id": user.ID,
-		"user.name": user.Name,
+		"user.id":         user.ID,
+		"user.name":       user.Name,
 		"sql.duration_ms": duration.Milliseconds(),
 	})
 
@@ -134,7 +134,7 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*entities.User, error) 
 	duration := time.Since(startTime)
 	if err != nil {
 		r.logErrorWithTrace(ctx, fmt.Sprintf("SQL Error: %s [duration: %v]", query, duration), err, logrus.Fields{
-			"query": query,
+			"query":           query,
 			"sql.duration_ms": duration.Milliseconds(),
 		})
 		return nil, fmt.Errorf("failed to query users: %w", err)
@@ -151,7 +151,7 @@ func (r *UserRepository) FindAll(ctx context.Context) ([]*entities.User, error) 
 	}
 
 	r.logWithTrace(ctx, fmt.Sprintf("SQL result: Retrieved %d users [duration: %v]", len(users), duration), logrus.Fields{
-		"users.count": len(users),
+		"users.count":     len(users),
 		"sql.duration_ms": duration.Milliseconds(),
 	})
 
