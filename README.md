@@ -124,9 +124,20 @@ GET /api/cache/get/{key}
 # 遅いエンドポイント (2秒待機)
 GET /api/slow
 
-# エラーエンドポイント
+# エラーエンドポイント（旧）
 GET /api/error
+
+# 想定内エラー (error.notify: false - アラート対象外)
+GET /api/expected-error
+
+# システムエラー (error.notify: true - アラート対象)
+GET /api/unexpected-error
+
+# 警告ログ
+GET /api/warn
 ```
+
+**詳細**: [Error Notification Setup Guide](./docs/error-notification-setup.md)
 
 ## Datadog で確認できる内容
 
@@ -214,11 +225,21 @@ done
 
 ### Day 9-10: アラート設定
 
-モニターを作成:
+**詳細ガイド**: [Error Notification Setup](./docs/error-notification-setup.md)
 
-- エラー率が5%を超えた場合
-- API応答時間が500msを超えた場合
-- キャッシュミス率が80%を超えた場合
+Terraformでモニターを作成:
+
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+作成されるモニター:
+- システムエラーアラート (error.notify:true)
+- エラー率スパイク検知
+- Slack通知連携
 
 ### Day 11-12: ダッシュボード作成
 
@@ -327,9 +348,17 @@ make build
 │   ├── Dockerfile          # Golang アプリケーションのDockerfile
 │   └── docker-compose.yml  # Docker Compose設定
 ├── docs/
-│   └── datadog-14days-curriculum.md  # 学習カリキュラム
+│   ├── datadog-14days-curriculum.md     # 学習カリキュラム
+│   └── error-notification-setup.md      # エラー通知設定ガイド
 ├── init/
 │   └── init.sql            # MySQLの初期化スクリプト
+├── terraform/              # Datadog リソースのTerraform定義
+│   ├── provider.tf         # Datadog Provider設定
+│   ├── variables.tf        # 変数定義
+│   ├── logs_pipeline.tf    # Logs Pipeline
+│   ├── monitor.tf          # Monitors
+│   ├── webhook_integration.tf  # Webhook Integration
+│   └── terraform.tfvars.example  # 環境変数サンプル
 ├── go.mod                  # Go依存関係
 ├── go.sum                  # Go依存関係チェックサム
 ├── Makefile                # 便利なコマンド集
@@ -368,9 +397,14 @@ make build
 - ヒーププロファイリング
 - パフォーマンスボトルネックの特定
 
+## ドキュメント
+
+- **[14日間学習カリキュラム](./docs/datadog-14days-curriculum.md)**: Datadog学習の完全ガイド
+- **[エラー通知設定ガイド](./docs/error-notification-setup.md)**: error.notifyベースのアラートシステム
+
 ## 参考リソース
 
 - [Datadog Documentation](https://docs.datadoghq.com/)
 - [dd-trace-go GitHub](https://github.com/DataDog/dd-trace-go)
 - [Datadog APM Guide](https://docs.datadoghq.com/tracing/)
-- [カリキュラム](./docs/datadog-14days-curriculum.md)
+- [Terraform Datadog Provider](https://registry.terraform.io/providers/DataDog/datadog/latest/docs)

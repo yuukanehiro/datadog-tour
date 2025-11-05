@@ -4,9 +4,10 @@
 1. [TraceとSpanとは](#traceとspanとは)
 2. [実装方法（Go）](#実装方法go)
 3. [ログとの統合](#ログとの統合)
-4. [Datadogでの確認方法](#datadogでの確認方法)
-5. [ベストプラクティス](#ベストプラクティス)
-6. [トラブルシューティング](#トラブルシューティング)
+4. [Log Explorer Fields & Attributesの設定](#log-explorer-fields--attributesの設定)
+5. [Datadogでの確認方法](#datadogでの確認方法)
+6. [ベストプラクティス](#ベストプラクティス)
+7. [トラブルシューティング](#トラブルシューティング)
 
 ---
 
@@ -339,6 +340,185 @@ func RespondJSONWithTrace(ctx context.Context, w http.ResponseWriter, status int
     json.NewEncoder(w).Encode(data)
 }
 ```
+
+---
+
+## Log Explorer Fields & Attributesの設定
+
+Datadog Log Explorerに表示される **Fields & Attributes**（`error`, `file`, `layer`, `level`, `line` など）は、以下の3つの場所で設定されています。
+
+### 1. アプリケーションコードで設定
+
+**場所**: `internal/common/logging/logger.go`
+
+ログ出力時に自動的に追加されるフィールドです。
+
+```go
+// internal/common/logging/logger.go
+package logging
+
+import (
+    "context"
+    "fmt"
+    "runtime"
+    "github.com/sirupsen/logrus"
+    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+)
+
+func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, err error, fields logrus.Fields) {
+    if fields == nil {
+        fields = logrus.Fields{}
+    }
+
+    // 呼び出し元の情報を自動取得（runtime.Caller）
+    _, file, line, ok := runtime.Caller(2)
+    if ok {
+        fields["file"] = file  // ← ファイルパス
+        fields["line"] = line  // ← 行番号
+    }
+
+    // Contextからtrace情報を取得
+    if span, ok := tracer.SpanFromContext(ctx); ok {
+        spanContext := span.Context()
+        fields["dd.trace_id"] = spanContext.TraceID()  // ← Trace ID
+        fields["dd.span_id"] = spanContext.SpanID()    // ← Span ID
+    }
+
+    fields["layer"] = layer  // ← "handler", "usecase", "repository"など
+
+    // エラーオブジェクトから自動的に "error" フィールドが追加される
+    logger.WithFields(fields).WithError(err).Error(formattedMessage)
+    //                         ^^^^^^^^^^^^^^
+    //                         これにより "error" フィールドが追加される
+}
+```
+
+**自動的に追加されるフィールド:**
+
+| フィールド名 | 取得元 | 説明 | 例 |
+|------------|--------|------|-----|
+| **file** | `runtime.Caller(2)` | 呼び出し元のファイルパス | `/usr/local/go/src/net/http/server.go` |
+| **line** | `runtime.Caller(2)` | 呼び出し元の行番号 | `2141` |
+| **layer** | 引数で指定 | アーキテクチャ層 | `handler`, `usecase`, `repository` |
+| **dd.trace_id** | `tracer.SpanFromContext(ctx)` | Datadog Trace ID | `2532593448861146015` |
+| **dd.span_id** | `tracer.SpanFromContext(ctx)` | Datadog Span ID | `3920137683431479689` |
+| **error** | `WithError(err)` | エラーメッセージ | `simulated database connection error` |
+
+**使用例:**
+
+```go
+// internal/presentation/handler/test_handler.go
+func (h *TestHandler) ErrorEndpoint(w http.ResponseWriter, r *http.Request) {
+    span, ctx := tracer.StartSpanFromContext(r.Context(), "handler.error_endpoint")
+    defer span.Finish()
+
+    logger := appcontext.GetLogger(ctx)
+    err := errors.New("simulated database connection error")
+
+    // この呼び出しで上記のフィールドが全て自動設定される
+    logging.LogErrorWithTrace(ctx, logger, "handler", "Simulated error occurred", err, nil)
+}
+```
+
+### 2. Logrusライブラリが自動設定
+
+**場所**: `cmd/api/main.go`
+
+```go
+// cmd/api/main.go
+func init() {
+    logger = logrus.New()
+    logger.SetFormatter(&logrus.JSONFormatter{})  // ← JSON形式で出力
+    logger.SetOutput(os.Stdout)
+    logger.SetLevel(logrus.InfoLevel)
+}
+```
+
+**Logrusが自動的に追加するフィールド:**
+
+| フィールド名 | 説明 | 例 |
+|------------|------|-----|
+| **level** | ログレベル | `error`, `info`, `warn`, `debug` |
+| **time** | タイムスタンプ | `2025-11-05T06:10:49Z` |
+| **msg** | ログメッセージ | `[handler] Simulated error occurred` |
+
+### 3. Datadog Agentが自動解析
+
+**場所**: `docker/docker-compose.yml`
+
+```yaml
+# docker/docker-compose.yml
+services:
+  api:
+    container_name: datadog-api
+    environment:
+      - DD_ENV=development
+      - DD_SERVICE=datadog-tour-api
+      - DD_VERSION=1.0.0
+    labels:
+      # Datadog Agentがログを収集する際の設定
+      com.datadoghq.ad.logs: '[{"source": "golang", "service": "datadog-tour-api"}]'
+```
+
+**Datadog Agentが自動的に追加するフィールド:**
+
+| フィールド名 | 取得元 | 説明 | 例 |
+|------------|--------|------|-----|
+| **service** | `DD_SERVICE`環境変数 または labels | サービス名 | `datadog-tour-api` |
+| **source** | labels | ログのソース言語 | `golang` |
+| **host** | `DD_HOSTNAME`環境変数 | ホスト名 | `datadog-tour-local` |
+| **container_name** | Dockerコンテナ名 | コンテナ名 | `datadog-api` |
+| **env** | `DD_ENV`環境変数 | 環境名 | `development` |
+
+### カスタムフィールドの追加方法
+
+独自のフィールドを追加したい場合は、`fields`引数に`logrus.Fields`を渡します。
+
+```go
+// カスタムフィールドを追加
+logging.LogErrorWithTrace(ctx, logger, "handler", "User creation failed", err, logrus.Fields{
+    "user_id": 123,               // カスタム: ユーザーID
+    "request_id": "abc-123",      // カスタム: リクエストID
+    "client_ip": "192.168.1.1",   // カスタム: クライアントIP
+    "user_agent": "Mozilla/5.0",  // カスタム: ユーザーエージェント
+})
+```
+
+**出力されるJSON:**
+
+```json
+{
+  "dd.trace_id": 2532593448861146015,
+  "dd.span_id": 3920137683431479689,
+  "file": "/app/internal/presentation/handler/user_handler.go",
+  "line": 42,
+  "layer": "handler",
+  "level": "error",
+  "time": "2025-11-05T06:10:49Z",
+  "msg": "[handler] User creation failed",
+  "error": "database connection timeout",
+  "user_id": 123,
+  "request_id": "abc-123",
+  "client_ip": "192.168.1.1",
+  "user_agent": "Mozilla/5.0",
+  "service": "datadog-tour-api",
+  "source": "golang",
+  "host": "datadog-tour-local"
+}
+```
+
+これら全てのフィールドがDatadog Log Explorerの **Fields & Attributes** タブに表示され、フィルタリングや検索に使用できます。
+
+### Fields & Attributesの表示確認
+
+**Log Explorerでの確認手順:**
+
+1. Datadog → Logs → Log Explorer
+2. ログ行をクリックして詳細を表示
+3. **Fields & Attributes** タブをクリック
+4. 上記のフィールドが全て表示されることを確認
+
+![Log Explorer Fields & Attributes](./logs_trace_1.png)
 
 ---
 

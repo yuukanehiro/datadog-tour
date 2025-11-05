@@ -1,4 +1,4 @@
-.PHONY: help up down logs build restart clean test-api
+.PHONY: help up down logs build rebuild-api rebuild-frontend restart clean test-api
 
 DOCKER_COMPOSE := docker-compose -f docker/docker-compose.yml --env-file .env
 
@@ -28,6 +28,12 @@ logs-datadog: ## Show logs from Datadog agent
 
 build: ## Build and start all services
 	$(DOCKER_COMPOSE) up -d --build
+
+rebuild-api: ## Rebuild and restart API service only
+	$(DOCKER_COMPOSE) up -d --build api
+
+rebuild-frontend: ## Rebuild and restart Frontend service only
+	$(DOCKER_COMPOSE) up -d --build frontend
 
 restart: ## Restart all services
 	$(DOCKER_COMPOSE) restart

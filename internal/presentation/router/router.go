@@ -25,6 +25,9 @@ func Setup(userHandler *handler.UserHandler, healthHandler *handler.HealthHandle
 	// Test endpoints for Datadog demonstration
 	router.HandleFunc("/api/slow", testHandler.SlowEndpoint).Methods("GET")
 	router.HandleFunc("/api/error", testHandler.ErrorEndpoint).Methods("GET")
+	router.HandleFunc("/api/expected-error", testHandler.ExpectedErrorEndpoint).Methods("GET")
+	router.HandleFunc("/api/unexpected-error", testHandler.UnexpectedErrorEndpoint).Methods("GET")
+	router.HandleFunc("/api/warn", testHandler.WarnEndpoint).Methods("GET")
 
 	return router
 }

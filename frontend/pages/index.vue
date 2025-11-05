@@ -45,8 +45,11 @@
             </div>
 
             <div class="mt-4">
-              <NuxtLink to="/users" class="btn btn-primary btn-lg">
+              <NuxtLink to="/users" class="btn btn-primary btn-lg me-2">
                 Go to User Management →
+              </NuxtLink>
+              <NuxtLink to="/test" class="btn btn-success btn-lg">
+                API Test Endpoints →
               </NuxtLink>
             </div>
           </div>
