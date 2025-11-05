@@ -17,9 +17,16 @@ import (
 func EchoRecoveryMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// Extract span BEFORE any panic can occur
+			// Create span for this middleware
+			span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "middleware.recovery")
+			defer span.Finish()
+
+			// Update request context
+			c.SetRequest(c.Request().WithContext(ctx))
+
+			// Extract trace info BEFORE any panic can occur
 			var traceID, spanID string
-			if span, ok := tracer.SpanFromContext(c.Request().Context()); ok {
+			if span != nil {
 				spanContext := span.Context()
 				traceID = strconv.FormatUint(spanContext.TraceID(), 10)
 				spanID = strconv.FormatUint(spanContext.SpanID(), 10)

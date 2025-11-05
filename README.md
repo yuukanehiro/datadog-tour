@@ -416,8 +416,12 @@ Clean Architectureに準拠した構成:
 
 ## 参考リソース
 
+### プロジェクトドキュメント
+- [ログとトレースのガイド](./docs/logs-trace-span/trace-and-span-guide.md)
+- [APMとプロファイラーのガイド](./docs/apm-profiler/profiler-guide.md)
+- [Middlewareチェーンの仕組みとRecovery Middlewareの動作原理](./docs/middleware/middleware-chain-guide.md)
+
+### 外部リソース
 - [Datadog Documentation](https://docs.datadoghq.com/)
 - [dd-trace-go GitHub](https://github.com/DataDog/dd-trace-go)
 - [Datadog APM Guide](https://docs.datadoghq.com/tracing/)
-- [ログとトレースのガイド](./docs/logs-trace-span/trace-and-span-guide.md)
-- [APMとプロファイラーのガイド](./docs/apm-profiler/profiler-guide.md)

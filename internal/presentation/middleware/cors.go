@@ -1,32 +1,27 @@
 package middleware
 
 import (
-	"net/http"
-
-	"github.com/rs/cors"
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-// NewCORSHandler creates a new CORS handler with configured options
-func NewCORSHandler() *cors.Cors {
-	return cors.New(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-		},
-		AllowedMethods: []string{
-			http.MethodGet,
-			http.MethodPost,
-			http.MethodPut,
-			http.MethodDelete,
-			http.MethodOptions,
-		},
-		AllowedHeaders: []string{
-			"Accept",
-			"Authorization",
-			"Content-Type",
-			"X-CSRF-Token",
-		},
-		AllowCredentials: true,
-		MaxAge:           300,
-	})
+// EchoCORSMiddleware creates a CORS middleware with Datadog tracing
+func EchoCORSMiddleware() echo.MiddlewareFunc {
+	// Use Echo's built-in CORS with default config
+	corsHandler := echomiddleware.CORSWithConfig(echomiddleware.DefaultCORSConfig)
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Create span for this middleware
+			span, ctx := tracer.StartSpanFromContext(c.Request().Context(), "middleware.cors")
+			defer span.Finish()
+
+			// Update request context
+			c.SetRequest(c.Request().WithContext(ctx))
+
+			// Execute CORS logic
+			return corsHandler(next)(c)
+		}
+	}
 }

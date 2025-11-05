@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/labstack/echo/v4"
-	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
 	echotrace "github.com/DataDog/dd-trace-go/contrib/labstack/echo.v4/v2"
 
@@ -40,8 +39,8 @@ func Setup(userHandler *handler.UserHandler, healthHandler *handler.HealthHandle
 	// 4. Recovery middleware AFTER tracing so span is available
 	e.Use(middleware.EchoRecoveryMiddleware())
 
-	// 5. CORS middleware (Echo built-in)
-	e.Use(echomiddleware.CORS())
+	// 5. CORS middleware with Datadog tracing
+	e.Use(middleware.EchoCORSMiddleware())
 
 	// Health endpoints
 	e.GET("/", healthHandler.HealthCheck)
