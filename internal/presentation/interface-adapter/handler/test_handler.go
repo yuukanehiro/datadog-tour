@@ -7,6 +7,7 @@ import (
 
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
+	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -38,7 +39,7 @@ func (h *TestHandler) SlowEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	logging.LogWithTrace(ctx, logger, "handler", "Slow operation completed", nil)
 
-	RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
+	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
 		"message": "This endpoint intentionally took 2 seconds to respond",
 		"delay":   "2s",
 	}, "Slow request completed successfully")
@@ -69,7 +70,14 @@ func (h *TestHandler) ErrorEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	logging.LogErrorWithTrace(ctx, logger, "handler", "Simulated error occurred", err, nil)
 
-	RespondErrorWithTrace(ctx, w, http.StatusInternalServerError, "An intentional error occurred for Datadog demonstration")
+	problem := response.NewInternalErrorProblem(
+		"Simulated database connection error for Datadog demonstration",
+		r.URL.Path,
+		true,
+	)
+	problem.Extra["error.stack"] = "user_repository.go:42"
+	problem.Extra["db.operation"] = "connection_test"
+	response.RespondProblemWithTrace(ctx, w, problem)
 }
 
 // ExpectedErrorEndpoint handles GET /api/expected-error - demonstrates expected error (no alert)
@@ -95,7 +103,13 @@ func (h *TestHandler) ExpectedErrorEndpoint(w http.ResponseWriter, r *http.Reque
 		"user.email": "duplicate@example.com",
 	})
 
-	RespondErrorWithTrace(ctx, w, http.StatusBadRequest, "User already exists (this is an expected error)")
+	problem := response.NewConflictProblem(
+		"User with email 'duplicate@example.com' already exists. This is an expected error that should not trigger alerts.",
+		r.URL.Path,
+	)
+	problem.Extra["user.email"] = "duplicate@example.com"
+	problem.Extra["validation.field"] = "email"
+	response.RespondProblemWithTrace(ctx, w, problem)
 }
 
 // UnexpectedErrorEndpoint handles GET /api/unexpected-error - demonstrates unexpected error (should alert)
@@ -121,7 +135,15 @@ func (h *TestHandler) UnexpectedErrorEndpoint(w http.ResponseWriter, r *http.Req
 		"db.host":    "mysql.example.com",
 	})
 
-	RespondErrorWithTrace(ctx, w, http.StatusInternalServerError, "Database connection lost (this should trigger an alert)")
+	problem := response.NewInternalErrorProblem(
+		"Database connection to mysql.example.com was lost unexpectedly. This system error should trigger an alert for immediate investigation.",
+		r.URL.Path,
+		true,
+	)
+	problem.Extra["db.host"] = "mysql.example.com"
+	problem.Extra["db.port"] = 3306
+	problem.Extra["retry.attempted"] = false
+	response.RespondProblemWithTrace(ctx, w, problem)
 }
 
 // WarnEndpoint handles GET /api/warn - demonstrates warning logs
@@ -145,7 +167,7 @@ func (h *TestHandler) WarnEndpoint(w http.ResponseWriter, r *http.Request) {
 		"threshold_ms":     1000,
 	})
 
-	RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
+	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, map[string]any{
 		"message": "Warning logged successfully",
 		"level":   "warn",
 		"type":    "performance_degradation",

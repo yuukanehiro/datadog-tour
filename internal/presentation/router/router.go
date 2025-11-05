@@ -5,7 +5,7 @@ import (
 
 	gorillatrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gorilla/mux"
 
-	"github.com/kanehiroyuu/datadog-tour/internal/presentation/handler"
+	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/handler"
 )
 
 // Setup configures all routes with Datadog tracing

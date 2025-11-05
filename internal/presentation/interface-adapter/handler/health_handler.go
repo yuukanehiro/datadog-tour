@@ -5,6 +5,7 @@ import (
 
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
+	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -31,5 +32,5 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 	logging.LogWithTrace(ctx, logger, "handler", "Health check endpoint called", nil)
 
-	RespondSuccessWithTrace(ctx, w, http.StatusOK, nil, "Service is healthy")
+	response.RespondSuccessWithTrace(ctx, w, http.StatusOK, nil, "Service is healthy")
 }
