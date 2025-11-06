@@ -2,10 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"log/slog"
 
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/infrastructure/database"
@@ -16,7 +16,7 @@ import (
 )
 
 // SetupRepositories creates and configures all repositories
-func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *logrus.Logger) *appcontext.RepoLocator {
+func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *slog.Logger) *appcontext.RepoLocator {
 	// Setup repositories
 	userRepo := database.NewUserRepository(db, logger)
 	cacheRepoBase := infraredis.NewCacheRepository(redisClient)
@@ -30,7 +30,7 @@ func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *lo
 }
 
 // SetupRouter creates and configures the application router with all handlers
-func SetupRouter(logger *logrus.Logger, repoLocator *appcontext.RepoLocator) *echo.Echo {
+func SetupRouter(logger *slog.Logger, repoLocator *appcontext.RepoLocator) *echo.Echo {
 	// Setup handlers
 	healthHandler := handler.NewHealthHandler()
 	userHandler := handler.NewUserHandler()

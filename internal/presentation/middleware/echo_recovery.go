@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/labstack/echo/v4"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -37,14 +37,9 @@ func EchoRecoveryMiddleware() echo.MiddlewareFunc {
 					// Get logger from context
 					logger := appcontext.GetLogger(c.Request().Context())
 					if logger == nil {
-						// Create fallback logger with JSON formatter
-						logger = logrus.New()
+						// Create fallback JSON logger
+						logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 					}
-
-					// Ensure logger uses JSON formatter for Datadog log-trace correlation
-					logger.SetFormatter(&logrus.JSONFormatter{})
-					logger.SetOutput(os.Stdout)
-					logger.SetLevel(logrus.InfoLevel)
 
 					// Get stack trace
 					stackTrace := string(debug.Stack())
@@ -53,7 +48,7 @@ func EchoRecoveryMiddleware() echo.MiddlewareFunc {
 					panicErr := fmt.Errorf("panic recovered: %v", err)
 
 					// Prepare log fields
-					logFields := logrus.Fields{
+					logFields := map[string]any{
 						"panic.value":       err,
 						"panic.stack_trace": stackTrace,
 						"http.method":       c.Request().Method,

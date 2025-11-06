@@ -3,68 +3,64 @@ package logging
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime"
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-// prepareLogFields prepares common log fields with caller info and trace information
-func prepareLogFields(ctx context.Context, layer string, fields logrus.Fields, skipFrames int) (logrus.Fields, string) {
-	if fields == nil {
-		fields = logrus.Fields{}
-	}
+// prepareLogAttrs prepares common log attributes with caller info and trace information
+func prepareLogAttrs(ctx context.Context, layer string, fields map[string]any, skipFrames int) []any {
+	attrs := make([]any, 0, 20)
 
 	// Get caller information
 	_, file, line, ok := runtime.Caller(skipFrames)
-	var callerInfo string
 	if ok {
-		fields["file"] = file
-		fields["line"] = line
-		callerInfo = fmt.Sprintf("%s:%d", file, line)
+		attrs = append(attrs, "file", file, "line", line)
 	}
 
 	// Extract trace information from context
 	// Convert to string format for Datadog log-trace correlation
-	// Only extract if not already present (e.g., manually set in panic recovery)
-	if _, hasTraceID := fields["dd.trace_id"]; !hasTraceID {
-		if span, ok := tracer.SpanFromContext(ctx); ok {
-			spanContext := span.Context()
-			fields["dd.trace_id"] = strconv.FormatUint(spanContext.TraceID(), 10)
-			fields["dd.span_id"] = strconv.FormatUint(spanContext.SpanID(), 10)
-		}
+	if span, ok := tracer.SpanFromContext(ctx); ok {
+		spanContext := span.Context()
+		attrs = append(attrs,
+			"dd.trace_id", strconv.FormatUint(spanContext.TraceID(), 10),
+			"dd.span_id", strconv.FormatUint(spanContext.SpanID(), 10),
+		)
 	}
 
-	fields["layer"] = layer
+	attrs = append(attrs, "layer", layer)
 
-	return fields, callerInfo
+	// Add custom fields
+	for k, v := range fields {
+		attrs = append(attrs, k, v)
+	}
+
+	return attrs
 }
 
-// formatLogMessage formats a log message with layer and caller information
-func formatLogMessage(layer, callerInfo, message string) string {
-	if callerInfo != "" {
-		return fmt.Sprintf("[%s] %s | %s", layer, callerInfo, message)
-	}
+// formatLogMessage formats a log message with layer
+func formatLogMessage(layer, message string) string {
 	return fmt.Sprintf("[%s] %s", layer, message)
 }
 
 // LogWithTrace logs an informational message with trace information
 // Level: INFO
-func LogWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, fields logrus.Fields) {
-	fields, callerInfo := prepareLogFields(ctx, layer, fields, 2)
-	formattedMessage := formatLogMessage(layer, callerInfo, message)
-	logger.WithFields(fields).Info(formattedMessage)
+func LogWithTrace(ctx context.Context, logger *slog.Logger, layer, message string, fields map[string]any) {
+	attrs := prepareLogAttrs(ctx, layer, fields, 2)
+	formattedMessage := formatLogMessage(layer, message)
+	logger.InfoContext(ctx, formattedMessage, attrs...)
 }
 
 // LogWarnWithTrace logs a warning with trace information
 // Level: WARN
 // Use for: Performance warnings, deprecated features, non-critical issues
-func LogWarnWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, fields logrus.Fields) {
-	fields, callerInfo := prepareLogFields(ctx, layer, fields, 2)
-	formattedMessage := formatLogMessage(layer, callerInfo, message)
-	logger.WithFields(fields).Warn(formattedMessage)
+func LogWarnWithTrace(ctx context.Context, logger *slog.Logger, layer, message string, fields map[string]any) {
+	attrs := prepareLogAttrs(ctx, layer, fields, 2)
+	formattedMessage := formatLogMessage(layer, message)
+	logger.WarnContext(ctx, formattedMessage, attrs...)
 }
 
 // LogErrorWithTrace logs a system error with trace information
@@ -74,11 +70,14 @@ func LogWarnWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, mes
 // Example:
 //
 //	LogErrorWithTrace(ctx, logger, "usecase", "Database connection failed", err, nil)
-func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, message string, err error, fields logrus.Fields) {
-	fields, callerInfo := prepareLogFields(ctx, layer, fields, 2)
+func LogErrorWithTrace(ctx context.Context, logger *slog.Logger, layer, message string, err error, fields map[string]any) {
+	if fields == nil {
+		fields = make(map[string]any)
+	}
 
 	// Add error.notify field to logs
 	fields["error.notify"] = true
+	fields["error"] = err.Error()
 
 	if span, ok := tracer.SpanFromContext(ctx); ok {
 		span.SetTag("error", true)
@@ -92,8 +91,9 @@ func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, me
 		}
 	}
 
-	formattedMessage := formatLogMessage(layer, callerInfo, message)
-	logger.WithFields(fields).WithError(err).Error(formattedMessage)
+	attrs := prepareLogAttrs(ctx, layer, fields, 2)
+	formattedMessage := formatLogMessage(layer, message)
+	logger.ErrorContext(ctx, formattedMessage, attrs...)
 }
 
 // LogErrorWithTraceNotNotify logs an error that should not trigger alerts
@@ -102,14 +102,17 @@ func LogErrorWithTrace(ctx context.Context, logger logrus.FieldLogger, layer, me
 //
 // Example:
 //
-//	LogErrorWithTraceNotNotify(ctx, logger, "usecase", "User already exists", err, logrus.Fields{
+//	LogErrorWithTraceNotNotify(ctx, logger, "usecase", "User already exists", err, map[string]any{
 //	    "error.type": "validation_error",
 //	})
-func LogErrorWithTraceNotNotify(ctx context.Context, logger logrus.FieldLogger, layer, message string, err error, fields logrus.Fields) {
-	fields, callerInfo := prepareLogFields(ctx, layer, fields, 2)
+func LogErrorWithTraceNotNotify(ctx context.Context, logger *slog.Logger, layer, message string, err error, fields map[string]any) {
+	if fields == nil {
+		fields = make(map[string]any)
+	}
 
 	// Add error.notify field to logs
 	fields["error.notify"] = false
+	fields["error"] = err.Error()
 
 	if span, ok := tracer.SpanFromContext(ctx); ok {
 		span.SetTag("error", true)
@@ -123,8 +126,9 @@ func LogErrorWithTraceNotNotify(ctx context.Context, logger logrus.FieldLogger, 
 		}
 	}
 
-	formattedMessage := formatLogMessage(layer, callerInfo, message)
-	logger.WithFields(fields).WithError(err).Error(formattedMessage)
+	attrs := prepareLogAttrs(ctx, layer, fields, 2)
+	formattedMessage := formatLogMessage(layer, message)
+	logger.ErrorContext(ctx, formattedMessage, attrs...)
 }
 
 // LogSQL logs SQL execution in GORM format with actual parameter values
@@ -137,7 +141,7 @@ func LogErrorWithTraceNotNotify(ctx context.Context, logger logrus.FieldLogger, 
 //
 //	LogSQL(ctx, logger, "INSERT INTO users (name, email) VALUES (?, ?)", []interface{}{"John", "john@example.com"}, time.Millisecond*5, 1, nil)
 //	// Output: [2024-11-05 15:04:05]  [5.00ms]  INSERT INTO users (name, email) VALUES ('John', 'john@example.com')  [1 rows]
-func LogSQL(ctx context.Context, logger logrus.FieldLogger, query string, args []interface{}, duration time.Duration, rowsAffected int64, err error) {
+func LogSQL(ctx context.Context, logger *slog.Logger, query string, args []interface{}, duration time.Duration, rowsAffected int64, err error) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	durationMs := fmt.Sprintf("%.2fms", float64(duration.Microseconds())/1000.0)
 
@@ -156,30 +160,32 @@ func LogSQL(ctx context.Context, logger logrus.FieldLogger, query string, args [
 	// Convert duration to float64 milliseconds for accurate sub-millisecond values
 	durationMsFloat := float64(duration.Microseconds()) / 1000.0
 
-	fields := logrus.Fields{
-		"component":       "sql",
-		"sql.query":       query,
-		"sql.args":        args,
-		"sql.duration_ms": durationMsFloat,
+	attrs := []any{
+		"component", "sql",
+		"sql.query", query,
+		"sql.args", args,
+		"sql.duration_ms", durationMsFloat,
 	}
 
 	if rowsAffected >= 0 {
-		fields["sql.rows_affected"] = rowsAffected
+		attrs = append(attrs, "sql.rows_affected", rowsAffected)
 	}
 
 	// Add trace information
 	// Convert to string format for Datadog log-trace correlation
 	if span, ok := tracer.SpanFromContext(ctx); ok {
 		spanContext := span.Context()
-		fields["dd.trace_id"] = strconv.FormatUint(spanContext.TraceID(), 10)
-		fields["dd.span_id"] = strconv.FormatUint(spanContext.SpanID(), 10)
+		attrs = append(attrs,
+			"dd.trace_id", strconv.FormatUint(spanContext.TraceID(), 10),
+			"dd.span_id", strconv.FormatUint(spanContext.SpanID(), 10),
+		)
 	}
 
 	if err != nil {
-		fields["sql.error"] = err.Error()
-		logger.WithFields(fields).WithError(err).Error(message)
+		attrs = append(attrs, "sql.error", err.Error(), "error", err.Error())
+		logger.ErrorContext(ctx, message, attrs...)
 	} else {
-		logger.WithFields(fields).Info(message)
+		logger.InfoContext(ctx, message, attrs...)
 	}
 }
 

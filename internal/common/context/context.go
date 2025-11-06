@@ -2,9 +2,10 @@ package context
 
 import (
 	"context"
+	"log/slog"
+	"os"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/usecase/port"
-	"github.com/sirupsen/logrus"
 )
 
 type contextKey string
@@ -32,16 +33,17 @@ func (r *RepoLocator) RCache() port.CacheRepository {
 }
 
 // SetLogger sets logger in context
-func SetLogger(ctx context.Context, logger *logrus.Logger) context.Context {
+func SetLogger(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerKey, logger)
 }
 
 // GetLogger retrieves logger from context
-func GetLogger(ctx context.Context) *logrus.Logger {
-	if logger, ok := ctx.Value(loggerKey).(*logrus.Logger); ok {
+func GetLogger(ctx context.Context) *slog.Logger {
+	if logger, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
 		return logger
 	}
-	return logrus.New() // fallback
+	// fallback to default JSON logger
+	return slog.New(slog.NewJSONHandler(os.Stdout, nil))
 }
 
 // SetRepoLocator sets repository locator in context

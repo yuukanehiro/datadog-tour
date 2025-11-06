@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/domain/entities"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -16,7 +16,7 @@ type UserRepository struct {
 }
 
 // NewUserRepository creates a new UserRepository
-func NewUserRepository(db *sql.DB, logger *logrus.Logger) *UserRepository {
+func NewUserRepository(db *sql.DB, logger *slog.Logger) *UserRepository {
 	return &UserRepository{
 		db: NewLoggingDB(db, logger),
 	}

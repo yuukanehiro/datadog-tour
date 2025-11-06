@@ -10,7 +10,6 @@ import (
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/domain/entities"
 	"github.com/kanehiroyuu/datadog-tour/internal/usecase/port"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -26,11 +25,7 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*ent
 	span, ctx := tracer.StartSpanFromContext(ctx, "usecase.create_user")
 	defer span.Finish()
 
-	// Add input parameters to span
-	span.SetTag("user.name", name)
-	span.SetTag("user.email", email)
-
-	logging.LogWithTrace(ctx, uc.Logger, "usecase", "Creating user", logrus.Fields{
+	logging.LogWithTrace(ctx, uc.Logger, "usecase", "Creating user", map[string]any{
 		"user.name":  name,
 		"user.email": email,
 	})
@@ -42,8 +37,6 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*ent
 	}
 
 	if err := uc.RUser.Create(ctx, user); err != nil {
-		span.SetTag("error", true)
-		span.SetTag("error.msg", err.Error())
 		logging.LogErrorWithTrace(ctx, uc.Logger, "usecase", "Failed to create user in repository", err, nil)
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -51,7 +44,7 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*ent
 	// Add created user ID to span
 	span.SetTag("user.id", user.ID)
 
-	logging.LogWithTrace(ctx, uc.Logger, "usecase", "User created, setting cache", logrus.Fields{
+	logging.LogWithTrace(ctx, uc.Logger, "usecase", "User created, setting cache", map[string]any{
 		"user.id": user.ID,
 	})
 
@@ -60,14 +53,13 @@ func (uc *UserUseCase) CreateUser(ctx context.Context, name, email string) (*ent
 	userData, _ := json.Marshal(user)
 	if err := uc.RCache.Set(ctx, cacheKey, string(userData)); err != nil {
 		// Log error but don't fail the request
-		span.SetTag("cache.error", err.Error())
 		span.SetTag("cache.set", false)
-		logging.LogErrorWithTrace(ctx, uc.Logger, "usecase", "Failed to set user cache", err, logrus.Fields{
+		logging.LogErrorWithTrace(ctx, uc.Logger, "usecase", "Failed to set user cache", err, map[string]any{
 			"cache.key": cacheKey,
 		})
 	} else {
 		span.SetTag("cache.set", true)
-		logging.LogWithTrace(ctx, uc.Logger, "usecase", "User cached successfully", logrus.Fields{
+		logging.LogWithTrace(ctx, uc.Logger, "usecase", "User cached successfully", map[string]any{
 			"cache.key": cacheKey,
 		})
 	}
@@ -84,7 +76,7 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 
 	span.SetTag("user.id", id)
 
-	logging.LogWithTrace(ctx, logger, "usecase", "Getting user by ID", logrus.Fields{
+	logging.LogWithTrace(ctx, logger, "usecase", "Getting user by ID", map[string]any{
 		"user.id": id,
 	})
 
@@ -97,9 +89,8 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 		span.SetTag("data.source", "cache")
 		var user entities.User
 		if err := json.Unmarshal([]byte(cachedData), &user); err == nil {
-			span.SetTag("user.name", user.Name)
-			span.SetTag("user.email", user.Email)
-			logging.LogWithTrace(ctx, logger, "usecase", "User found in cache", logrus.Fields{
+			span.SetTag("user.id", user.ID)
+			logging.LogWithTrace(ctx, logger, "usecase", "User found in cache", map[string]any{
 				"user.id":   user.ID,
 				"cache.key": cacheKey,
 			})
@@ -110,26 +101,20 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 	span.SetTag("cache.hit", false)
 	span.SetTag("data.source", "database")
 
-	logging.LogWithTrace(ctx, logger, "usecase", "Cache miss, fetching from database", logrus.Fields{
+	logging.LogWithTrace(ctx, logger, "usecase", "Cache miss, fetching from database", map[string]any{
 		"user.id": id,
 	})
 
 	// Get from repository
 	user, err := uc.RUser.FindByID(ctx, id)
 	if err != nil {
-		span.SetTag("error", true)
-		span.SetTag("error.msg", err.Error())
-		logging.LogErrorWithTrace(ctx, logger, "usecase", "Failed to get user from repository", err, logrus.Fields{
+		logging.LogErrorWithTrace(ctx, logger, "usecase", "Failed to get user from repository", err, map[string]any{
 			"user.id": id,
 		})
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Add user metadata to span
-	span.SetTag("user.name", user.Name)
-	span.SetTag("user.email", user.Email)
-
-	logging.LogWithTrace(ctx, logger, "usecase", "User found in database, setting cache", logrus.Fields{
+	logging.LogWithTrace(ctx, logger, "usecase", "User found in database, setting cache", map[string]any{
 		"user.id":   user.ID,
 		"cache.key": cacheKey,
 	})
@@ -138,8 +123,7 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 	userData, _ := json.Marshal(user)
 	if err := uc.RCache.Set(ctx, cacheKey, string(userData)); err != nil {
 		span.SetTag("cache.set", false)
-		span.SetTag("cache.error", err.Error())
-		logging.LogErrorWithTrace(ctx, uc.Logger, "usecase", "Failed to set user cache", err, logrus.Fields{
+		logging.LogErrorWithTrace(ctx, uc.Logger, "usecase", "Failed to set user cache", err, map[string]any{
 			"cache.key": cacheKey,
 		})
 	} else {
@@ -162,8 +146,6 @@ func (uc *UserUseCase) GetAllUsers(ctx context.Context) ([]*entities.User, error
 
 	users, err := uc.RUser.FindAll(ctx)
 	if err != nil {
-		span.SetTag("error", true)
-		span.SetTag("error.msg", err.Error())
 		logging.LogErrorWithTrace(ctx, logger, "usecase", "Failed to fetch users from repository", err, nil)
 		return nil, fmt.Errorf("failed to get users: %w", err)
 	}
@@ -171,7 +153,7 @@ func (uc *UserUseCase) GetAllUsers(ctx context.Context) ([]*entities.User, error
 	span.SetTag("users.count", len(users))
 	span.SetTag("query.success", true)
 
-	logging.LogWithTrace(ctx, logger, "usecase", "Users fetched successfully", logrus.Fields{
+	logging.LogWithTrace(ctx, logger, "usecase", "Users fetched successfully", map[string]any{
 		"users.count": len(users),
 	})
 
@@ -192,8 +174,6 @@ func (uc *UserUseCase) TestPanic(ctx context.Context) error {
 	// Call repository method that will panic
 	err := uc.RUser.TestPanic(ctx)
 	if err != nil {
-		span.SetTag("error", true)
-		span.SetTag("error.msg", err.Error())
 		logging.LogErrorWithTrace(ctx, logger, "usecase", "Repository returned error", err, nil)
 		return fmt.Errorf("test panic failed: %w", err)
 	}

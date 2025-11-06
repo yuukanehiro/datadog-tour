@@ -3,26 +3,27 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/DataDog/datadog-go/v5/statsd"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 	sqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/database/sql"
 	redistrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/redis/go-redis.v9"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
 )
 
-var logger *logrus.Logger
+var logger *slog.Logger
 
 func init() {
-	logger = logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetOutput(os.Stdout)
-	logger.SetLevel(logrus.InfoLevel)
+	// Create JSON handler for structured logging
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	logger = slog.New(handler)
 }
 
 func main() {
@@ -64,7 +65,7 @@ func main() {
 		),
 	)
 	if err != nil {
-		logger.WithError(err).Warn("Failed to start profiler")
+		logger.Warn("Failed to start profiler", "error", err)
 	}
 	defer profiler.Stop()
 
@@ -78,7 +79,8 @@ func main() {
 		}),
 	)
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to initialize StatsD client")
+		logger.Error("Failed to initialize StatsD client", "error", err)
+		os.Exit(1)
 	}
 	defer statsdClient.Close()
 
@@ -92,12 +94,14 @@ func main() {
 	)
 	db, err := sqltrace.Open("mysql", dsn, sqltrace.WithServiceName("mysql"))
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to connect to MySQL")
+		logger.Error("Failed to connect to MySQL", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		logger.WithError(err).Fatal("Failed to ping MySQL")
+		logger.Error("Failed to ping MySQL", "error", err)
+		os.Exit(1)
 	}
 	logger.Info("Successfully connected to MySQL")
 
@@ -111,7 +115,8 @@ func main() {
 
 	ctx := context.Background()
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		logger.WithError(err).Fatal("Failed to connect to Redis")
+		logger.Error("Failed to connect to Redis", "error", err)
+		os.Exit(1)
 	}
 	logger.Info("Successfully connected to Redis")
 
@@ -121,8 +126,9 @@ func main() {
 
 	// Start Echo server
 	port := "8080"
-	logger.WithField("port", port).Info("Starting server")
+	logger.Info("Starting server", "port", port)
 	if err := e.Start(":" + port); err != nil && err != http.ErrServerClosed {
-		logger.WithError(err).Fatal("Server failed to start")
+		logger.Error("Server failed to start", "error", err)
+		os.Exit(1)
 	}
 }

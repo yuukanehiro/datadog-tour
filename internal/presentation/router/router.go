@@ -1,10 +1,10 @@
 package router
 
 import (
+	"log/slog"
 	"os"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sirupsen/logrus"
 	echotrace "github.com/DataDog/dd-trace-go/contrib/labstack/echo.v4/v2"
 
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
@@ -25,7 +25,7 @@ func Setup(userHandler *handler.UserHandler, healthHandler *handler.HealthHandle
 	// Apply middlewares in order
 	// 1. Logger middleware - sets logger in context
 	if logger != nil {
-		e.Use(middleware.EchoLoggerMiddleware(logger.(*logrus.Logger)))
+		e.Use(middleware.EchoLoggerMiddleware(logger.(*slog.Logger)))
 	}
 
 	// 2. RepoLocator middleware - sets repository locator in context

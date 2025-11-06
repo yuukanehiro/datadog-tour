@@ -3,20 +3,20 @@ package database
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"time"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
-	"github.com/sirupsen/logrus"
 )
 
 // LoggingDB wraps sql.DB to automatically log SQL queries in GORM format
 type LoggingDB struct {
 	*sql.DB
-	logger *logrus.Logger
+	logger *slog.Logger
 }
 
 // NewLoggingDB creates a new LoggingDB wrapper
-func NewLoggingDB(db *sql.DB, logger *logrus.Logger) *LoggingDB {
+func NewLoggingDB(db *sql.DB, logger *slog.Logger) *LoggingDB {
 	return &LoggingDB{
 		DB:     db,
 		logger: logger,
