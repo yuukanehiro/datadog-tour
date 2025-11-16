@@ -6,11 +6,8 @@ require (
 	github.com/DataDog/datadog-go/v5 v5.6.0
 	github.com/DataDog/dd-trace-go/contrib/labstack/echo.v4/v2 v2.3.0
 	github.com/go-sql-driver/mysql v1.8.1
-	github.com/gorilla/mux v1.8.1
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/redis/go-redis/v9 v9.7.3
-	github.com/rs/cors v1.10.1
-	github.com/sirupsen/logrus v1.9.3
 	gopkg.in/DataDog/dd-trace-go.v1 v1.74.8
 )
 
@@ -25,8 +22,6 @@ require (
 	github.com/DataDog/datadog-agent/pkg/util/scrubber v0.67.0 // indirect
 	github.com/DataDog/datadog-agent/pkg/version v0.67.0 // indirect
 	github.com/DataDog/dd-trace-go/contrib/database/sql/v2 v2.3.0 // indirect
-	github.com/DataDog/dd-trace-go/contrib/gorilla/mux/v2 v2.3.0 // indirect
-	github.com/DataDog/dd-trace-go/contrib/net/http/v2 v2.3.0 // indirect
 	github.com/DataDog/dd-trace-go/contrib/redis/go-redis.v9/v2 v2.3.0 // indirect
 	github.com/DataDog/dd-trace-go/v2 v2.3.0 // indirect
 	github.com/DataDog/go-libddwaf/v4 v4.3.2 // indirect

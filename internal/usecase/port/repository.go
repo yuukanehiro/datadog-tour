@@ -2,9 +2,9 @@ package port
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/kanehiroyuu/datadog-tour/internal/domain/entities"
-	"github.com/sirupsen/logrus"
 )
 
 // UserRepository is a port for user repository
@@ -23,6 +23,4 @@ type CacheRepository interface {
 }
 
 // Logger is a port for logger
-type Logger interface {
-	logrus.FieldLogger
-}
+type Logger = *slog.Logger
