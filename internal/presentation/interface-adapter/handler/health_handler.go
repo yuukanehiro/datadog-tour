@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
+	"github.com/labstack/echo/v4"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -23,12 +23,16 @@ func (h *HealthHandler) HealthCheck(c echo.Context) error {
 	defer span.Finish()
 
 	logger := appcontext.GetLogger(ctx)
+	repoLocator := appcontext.GetRepoLocator(ctx)
 
 	// Add request metadata to span
 	span.SetTag("http.method", c.Request().Method)
 	span.SetTag("http.url", c.Request().URL.Path)
 	span.SetTag("http.user_agent", c.Request().UserAgent())
 	span.SetTag("health.status", "healthy")
+
+	// Send custom metric: health check count
+	repoLocator.StatsdClient.Incr("api.health.check", nil, 1)
 
 	logging.LogWithTrace(ctx, logger, "handler", "Health check endpoint called", nil)
 

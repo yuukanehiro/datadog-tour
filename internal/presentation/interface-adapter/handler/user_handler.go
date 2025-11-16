@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/labstack/echo/v4"
 	appcontext "github.com/kanehiroyuu/datadog-tour/internal/common/context"
 	"github.com/kanehiroyuu/datadog-tour/internal/common/logging"
 	"github.com/kanehiroyuu/datadog-tour/internal/presentation/interface-adapter/response"
 	"github.com/kanehiroyuu/datadog-tour/internal/usecase"
+	"github.com/labstack/echo/v4"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
@@ -66,11 +66,18 @@ func (h *UserHandler) CreateUser(c echo.Context) error {
 	span.SetTag("user.name", req.Name)
 	span.SetTag("user.email", req.Email)
 
+	// Send custom metric: user creation attempt
+	repoLocator.StatsdClient.Incr("api.users.create", nil, 1)
+
 	user, err := interactor.CreateUser(ctx, req.Name, req.Email)
 	if err != nil {
 		logging.LogErrorWithTrace(ctx, logger, "handler", "Failed to create user", err, nil)
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
+
+		// Send custom metric: user creation error
+		repoLocator.StatsdClient.Incr("api.users.create.error", nil, 1)
+
 		problem := response.NewInternalErrorProblem(
 			"Failed to create user due to internal error",
 			c.Request().URL.Path,
@@ -83,6 +90,9 @@ func (h *UserHandler) CreateUser(c echo.Context) error {
 
 	// Add result to span
 	span.SetTag("user.id", user.ID)
+
+	// Send custom metric: user creation success
+	repoLocator.StatsdClient.Incr("api.users.create.success", nil, 1)
 
 	logging.LogWithTrace(ctx, logger, "handler", "User created successfully", nil)
 	return c.JSON(http.StatusCreated, map[string]any{

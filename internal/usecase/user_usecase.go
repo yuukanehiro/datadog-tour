@@ -99,6 +99,12 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 		if err := json.Unmarshal([]byte(cachedData), &user); err == nil {
 			span.SetTag("user.name", user.Name)
 			span.SetTag("user.email", user.Email)
+
+			// Send custom metric: cache hit
+			if repoLocator := appcontext.GetRepoLocator(ctx); repoLocator != nil && repoLocator.StatsdClient != nil {
+				repoLocator.StatsdClient.Incr("api.users.get.cache_hit", nil, 1)
+			}
+
 			logging.LogWithTrace(ctx, logger, "usecase", "User found in cache", logrus.Fields{
 				"user.id":   user.ID,
 				"cache.key": cacheKey,
@@ -109,6 +115,11 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id int) (*entities.User, err
 
 	span.SetTag("cache.hit", false)
 	span.SetTag("data.source", "database")
+
+	// Send custom metric: cache miss
+	if repoLocator := appcontext.GetRepoLocator(ctx); repoLocator != nil && repoLocator.StatsdClient != nil {
+		repoLocator.StatsdClient.Incr("api.users.get.cache_miss", nil, 1)
+	}
 
 	logging.LogWithTrace(ctx, logger, "usecase", "Cache miss, fetching from database", logrus.Fields{
 		"user.id": id,
@@ -160,7 +171,16 @@ func (uc *UserUseCase) GetAllUsers(ctx context.Context) ([]*entities.User, error
 
 	logging.LogWithTrace(ctx, logger, "usecase", "Fetching all users", nil)
 
+	// Measure duration
+	start := time.Now()
 	users, err := uc.RUser.FindAll(ctx)
+	duration := time.Since(start)
+
+	// Send custom metric: list duration
+	if repoLocator := appcontext.GetRepoLocator(ctx); repoLocator != nil && repoLocator.StatsdClient != nil {
+		repoLocator.StatsdClient.Timing("api.users.list.duration", duration, nil, 1)
+	}
+
 	if err != nil {
 		span.SetTag("error", true)
 		span.SetTag("error.msg", err.Error())
@@ -170,6 +190,11 @@ func (uc *UserUseCase) GetAllUsers(ctx context.Context) ([]*entities.User, error
 
 	span.SetTag("users.count", len(users))
 	span.SetTag("query.success", true)
+
+	// Send custom metric: total users count
+	if repoLocator := appcontext.GetRepoLocator(ctx); repoLocator != nil && repoLocator.StatsdClient != nil {
+		repoLocator.StatsdClient.Gauge("api.users.total", float64(len(users)), nil, 1)
+	}
 
 	logging.LogWithTrace(ctx, logger, "usecase", "Users fetched successfully", logrus.Fields{
 		"users.count": len(users),

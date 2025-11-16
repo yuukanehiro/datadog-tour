@@ -116,7 +116,7 @@ func main() {
 	logger.Info("Successfully connected to Redis")
 
 	// Setup repositories and router
-	repoLocator := SetupRepositories(db, redisClient, logger)
+	repoLocator := SetupRepositories(db, redisClient, logger, statsdClient)
 	e := SetupRouter(logger, repoLocator)
 
 	// Start Echo server

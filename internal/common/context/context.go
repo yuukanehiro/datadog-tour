@@ -3,6 +3,7 @@ package context
 import (
 	"context"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"github.com/kanehiroyuu/datadog-tour/internal/usecase/port"
 	"github.com/sirupsen/logrus"
 )
@@ -15,10 +16,11 @@ const (
 	interactorKey  contextKey = "interactor"
 )
 
-// RepoLocator holds all repositories
+// RepoLocator holds all repositories and shared dependencies
 type RepoLocator struct {
-	UserRepo  port.UserRepository
-	CacheRepo port.CacheRepository
+	UserRepo     port.UserRepository
+	CacheRepo    port.CacheRepository
+	StatsdClient *statsd.Client
 }
 
 // RUser returns UserRepository

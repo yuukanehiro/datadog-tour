@@ -420,6 +420,8 @@ Clean Architectureに準拠した構成:
 - [ログとトレースのガイド](./docs/logs-trace-span/trace-and-span-guide.md)
 - [APMとプロファイラーのガイド](./docs/apm-profiler/profiler-guide.md)
 - [Middlewareチェーンの仕組みとRecovery Middlewareの動作原理](./docs/middleware/middleware-chain-guide.md)
+- [Custom Metrics完全ガイド](./docs/custom-metrics/custom-metrics-guide.md)
+- [Custom Metricsを利用したアラート設定ガイド](./docs/custom-metrics/alerts-guide.md)
 
 ### 外部リソース
 - [Datadog Documentation](https://docs.datadoghq.com/)

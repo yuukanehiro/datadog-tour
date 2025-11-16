@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -16,7 +17,7 @@ import (
 )
 
 // SetupRepositories creates and configures all repositories
-func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *logrus.Logger) *appcontext.RepoLocator {
+func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *logrus.Logger, statsdClient *statsd.Client) *appcontext.RepoLocator {
 	// Setup repositories
 	userRepo := database.NewUserRepository(db, logger)
 	cacheRepoBase := infraredis.NewCacheRepository(redisClient)
@@ -24,8 +25,9 @@ func SetupRepositories(db *sql.DB, redisClient redis.UniversalClient, logger *lo
 
 	// Setup RepoLocator
 	return &appcontext.RepoLocator{
-		UserRepo:  userRepo,
-		CacheRepo: cacheRepo,
+		UserRepo:     userRepo,
+		CacheRepo:    cacheRepo,
+		StatsdClient: statsdClient,
 	}
 }
 
